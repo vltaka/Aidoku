@@ -465,6 +465,7 @@
 "STANDARD" = "Standard";
 "COMPACT" = "Compact";
 "CUSTOM" = "Custom";
+"WATERFALL" = "Waterfall";
 "PORTRAIT_ROWS" = "Portrait Rows";
 "LANDSCAPE_ROWS" = "Landscape Rows";
 "PORTRAIT" = "Portrait";
