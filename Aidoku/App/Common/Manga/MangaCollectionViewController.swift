@@ -12,6 +12,21 @@ import SwiftUI
 class MangaCollectionViewController: BaseCollectionViewController {
     var usesListLayout = false
 
+    private var waterfallRelayoutWorkItem: DispatchWorkItem?
+
+    /// Coalesce cover aspect ratio updates into a single waterfall relayout,
+    /// so a page of covers loading at once doesn't cause repeated layout passes.
+    func scheduleWaterfallRelayout() {
+        guard collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+        waterfallRelayoutWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+            self.collectionView.collectionViewLayout.invalidateLayout()
+        }
+        waterfallRelayoutWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+    }
+
     lazy var dataSource = makeDataSource()
     lazy var refreshControl = UIRefreshControl()
     lazy var errorView = SourceErrorView()
@@ -95,6 +110,25 @@ class MangaCollectionViewController: BaseCollectionViewController {
     override func observe() {
         super.observe()
 
+        addObserver(forName: AppSettings.appearance.layout.key) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.collectionView.collectionViewLayout = self.makeCollectionViewLayout()
+            }
+        }
+        for key in [AppSettings.appearance.customPortraitRows.key, AppSettings.appearance.customLandscapeRows.key] {
+            addObserver(forName: key) { [weak self] _ in
+                Task { @MainActor in
+                    self?.collectionView.collectionViewLayout.invalidateLayout()
+                }
+            }
+        }
+        addObserver(forName: CoverAspectCache.didUpdateNotification) { [weak self] _ in
+            Task { @MainActor in
+                self?.scheduleWaterfallRelayout()
+            }
+        }
+
         addObserver(forName: .addToLibrary) { [weak self] notification in
             guard
                 let self,
@@ -130,7 +164,12 @@ class MangaCollectionViewController: BaseCollectionViewController {
 
     // MARK: Collection View Layout
     override func makeCollectionViewLayout() -> UICollectionViewLayout {
-        UICollectionViewCompositionalLayout { sectionIndex, environment in
+        if !usesListLayout, AppSettings.appearance.layout.get() == .waterfall {
+            let layout = MangaWaterfallLayout()
+            layout.delegate = self
+            return layout
+        }
+        return UICollectionViewCompositionalLayout { sectionIndex, environment in
             switch Section(rawValue: sectionIndex) {
                 case .regular:
                     if self.usesListLayout {
@@ -372,5 +411,16 @@ extension MangaCollectionViewController {
         parameters.visiblePath = UIBezierPath(roundedRect: rect, cornerRadius: 12)
 
         return UITargetedPreview(view: cell.contentView, parameters: parameters)
+    }
+}
+
+// MARK: - Waterfall Layout Delegate
+extension MangaCollectionViewController: MangaWaterfallLayoutDelegate {
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        aspectRatioForItemAt indexPath: IndexPath
+    ) -> CGFloat {
+        let cover = dataSource.itemIdentifier(for: indexPath)?.cover
+        return CoverAspectCache.shared.aspectRatio(for: cover) ?? (2.0 / 3.0)
     }
 }
