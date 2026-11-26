@@ -131,6 +131,7 @@ struct MangaWaterfallGridItem: View {
         }
     }
 
+    @ViewBuilder
     private var coverView: some View {
         let view = Rectangle()
             .fill(Color.clear)
