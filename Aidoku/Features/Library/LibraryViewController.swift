@@ -470,6 +470,14 @@ class LibraryViewController: OldMangaCollectionViewController {
     // collection view layout with header
     override func makeCollectionViewLayout() -> UICollectionViewLayout {
         let layout = super.makeCollectionViewLayout()
+        if let layout = layout as? MangaWaterfallLayout {
+            layout.headerHeight = if !viewModel.categories.isEmpty || !viewModel.filterGroups.isEmpty {
+                40
+            } else {
+                0
+            }
+            return layout
+        }
         guard let layout = layout as? UICollectionViewCompositionalLayout else { return layout }
 
         let config = UICollectionViewCompositionalLayoutConfiguration()
