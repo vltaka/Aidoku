@@ -248,7 +248,7 @@ extension MangaCollectionViewController {
 
     func makeDataSource() -> UICollectionViewDiffableDataSource<Section, AidokuRunner.Manga> {
         if usesListLayout {
-            UICollectionViewDiffableDataSource(
+            return UICollectionViewDiffableDataSource(
                 collectionView: collectionView,
                 cellProvider: makeListCellRegistration().cellProvider
             )
