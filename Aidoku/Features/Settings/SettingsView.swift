@@ -529,7 +529,7 @@ private struct LayoutSettingView: View {
     init() {
         let layout = AppSettings.appearance.layout.get()
         self._selection = State(initialValue: layout)
-        self._showCustomSettings = State(initialValue: layout == .custom)
+        self._showCustomSettings = State(initialValue: layout == .custom || layout == .waterfall)
     }
 
     var body: some View {
@@ -540,7 +540,7 @@ private struct LayoutSettingView: View {
                     Button {
                         selection = layout
                         withAnimation {
-                            showCustomSettings = layout == .custom
+                            showCustomSettings = layout == .custom || layout == .waterfall
                         }
                     } label: {
                         VStack(spacing: 10) {
@@ -598,10 +598,12 @@ private struct LayoutSettingView: View {
 private struct CoverSizeSettingView: View {
     @State private var listCoverHeight: Double
     @State private var scrollerCoverHeight: Double
+    @State private var listCoverFit: Bool
 
     init() {
         self._listCoverHeight = State(initialValue: AppSettings.appearance.listCoverHeight.get())
         self._scrollerCoverHeight = State(initialValue: AppSettings.appearance.scrollerCoverHeight.get())
+        self._listCoverFit = State(initialValue: AppSettings.appearance.listCoverFit.get())
     }
 
     var body: some View {
@@ -613,7 +615,7 @@ private struct CoverSizeSettingView: View {
                     Text("\(Int(listCoverHeight))")
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $listCoverHeight, in: 80...200, step: 5)
+                Slider(value: $listCoverHeight, in: 80...500, step: 5)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -623,7 +625,16 @@ private struct CoverSizeSettingView: View {
                     Text("\(Int(scrollerCoverHeight))")
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $scrollerCoverHeight, in: 120...300, step: 5)
+                Slider(value: $scrollerCoverHeight, in: 120...500, step: 5)
+            }
+
+            Toggle(isOn: $listCoverFit) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("排行榜封面完整显示")
+                    Text("不剪裁封面，比例不同时留白")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .onChange(of: listCoverHeight) { newValue in
@@ -633,6 +644,10 @@ private struct CoverSizeSettingView: View {
         .onChange(of: scrollerCoverHeight) { newValue in
             AppSettings.appearance.scrollerCoverHeight.set(newValue)
             NotificationCenter.default.post(name: .init(AppSettings.appearance.scrollerCoverHeight.key), object: newValue)
+        }
+        .onChange(of: listCoverFit) { newValue in
+            AppSettings.appearance.listCoverFit.set(newValue)
+            NotificationCenter.default.post(name: .init(AppSettings.appearance.listCoverFit.key), object: newValue)
         }
     }
 }
