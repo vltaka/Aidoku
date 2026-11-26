@@ -20,7 +20,7 @@ struct HomeGridView: View {
     @State private var columns: [GridItem]
     @State private var itemsPerRow: Int = 1
     @State private var isWaterfall = false
-    @State private var aspectCacheVersion = 0
+    @State private var distributionCache = WaterfallDistributionCache()
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -99,32 +99,47 @@ struct HomeGridView: View {
         .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.customLandscapeRows.key))) { _ in
             updateItemsPerRow()
         }
-        .onReceive(NotificationCenter.default.publisher(for: CoverAspectCache.didUpdateNotification)) { _ in
-            aspectCacheVersion += 1
-        }
         .onChange(of: itemsPerRow) { newValue in
             columns = Self.getColumns(itemsPerRow: newValue)
         }
     }
 
     private var waterfallBody: some View {
-        let _ = aspectCacheVersion
         let columnCount = max(1, itemsPerRow)
         let horizontalPadding: CGFloat = 16
         let itemWidth = max(
             0,
             (containerWidth - horizontalPadding * 2 - CGFloat(columnCount - 1) * Self.spacing) / CGFloat(columnCount)
         )
-        let distribution = WaterfallDistributor.distribute(count: entries.count, columns: columnCount) { index in
-            let ratio = CoverAspectCache.shared.aspectRatio(for: entries[index].cover) ?? (2.0 / 3.0)
-            return itemWidth / ratio
+        // freeze the distribution (and the ratios it assumed) for a given
+        // set of entries, so covers never change places once shown
+        let signature = "\(entries.count)|\(entries.first?.key ?? "")|\(entries.last?.key ?? "")|\(columnCount)"
+        let distribution = distributionCache.distribution(key: "home", signature: signature) {
+            var ratios: [String: CGFloat] = [:]
+            let result = WaterfallDistributor.distribute(count: entries.count, columns: columnCount) { index in
+                let entry = entries[index]
+                let ratio = CoverAspectCache.shared.aspectRatio(for: entry.cover) ?? (2.0 / 3.0)
+                ratios[entry.key] = ratio
+                return itemWidth / ratio + WaterfallItemMetrics.textHeight(
+                    title: entry.title,
+                    tags: entry.tags ?? [],
+                    width: itemWidth
+                )
+            }
+            distributionCache.setValues(ratios, for: "home")
+            return result
         }
+        let frozenRatios = distributionCache.values(for: "home") ?? [:]
         return VStack(spacing: Self.spacing) {
             HStack(alignment: .top, spacing: Self.spacing) {
                 ForEach(distribution.indices, id: \.self) { column in
                     LazyVStack(spacing: Self.spacing) {
                         ForEach(distribution[column], id: \.self) { index in
-                            mangaWaterfallItem(entry: entries[index])
+                            mangaWaterfallItem(
+                                entry: entries[index],
+                                itemWidth: itemWidth,
+                                aspectRatio: frozenRatios[entries[index].key] ?? (2.0 / 3.0)
+                            )
                         }
                     }
                     .frame(width: itemWidth)
@@ -135,7 +150,7 @@ struct HomeGridView: View {
         .padding([.horizontal, .bottom])
     }
 
-    private func mangaWaterfallItem(entry: AidokuRunner.Manga) -> some View {
+    private func mangaWaterfallItem(entry: AidokuRunner.Manga, itemWidth: CGFloat, aspectRatio: CGFloat) -> some View {
         let inLibrary = bookmarkedItems.contains(entry.key)
         return Button {
             if let onSelect {
@@ -149,7 +164,10 @@ struct HomeGridView: View {
                 title: entry.title,
                 coverImage: entry.cover ?? "",
                 bookmarked: inLibrary,
-                aspectRatio: CoverAspectCache.shared.aspectRatio(for: entry.cover) ?? (2.0 / 3.0)
+                aspectRatio: aspectRatio,
+                tags: entry.tags ?? [],
+                language: CoverLanguageBadge.text(for: source),
+                itemWidth: itemWidth
             )
         }
         .buttonStyle(MangaGridButtonStyle())

@@ -14,11 +14,16 @@ struct CollectionViewSection {
 struct CollectionView: UIViewControllerRepresentable {
     let sections: [CollectionViewSection]
     let layout: UICollectionViewCompositionalLayout
+    // identifies the layout's parameters (e.g. the cover height); when it
+    // changes, the live collection view swaps its layout in place instead
+    // of the whole view being recreated
+    var layoutToken: AnyHashable?
     let collectionViewController: UICollectionViewController
 
-    init(sections: [CollectionViewSection], layout: UICollectionViewCompositionalLayout) {
+    init(sections: [CollectionViewSection], layout: UICollectionViewCompositionalLayout, layoutToken: AnyHashable? = nil) {
         self.sections = sections
         self.layout = layout
+        self.layoutToken = layoutToken
         self.collectionViewController = UICollectionViewController(collectionViewLayout: layout)
     }
 
@@ -30,7 +35,19 @@ struct CollectionView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UICollectionViewController, context: Context) {
-        uiViewController.collectionView.reloadData()
+        context.coordinator.parent = self
+        // Reloading while a navigation transition is animating can shuffle
+        // the hosted cells (they get reconfigured against mid-transition
+        // geometry); defer the reload until the transition completes.
+        if let transitionCoordinator = uiViewController.transitionCoordinator
+            ?? uiViewController.navigationController?.transitionCoordinator {
+            transitionCoordinator.animate(alongsideTransition: nil) { [weak uiViewController] _ in
+                guard let uiViewController else { return }
+                context.coordinator.apply(to: uiViewController)
+            }
+        } else {
+            context.coordinator.apply(to: uiViewController)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -39,9 +56,29 @@ struct CollectionView: UIViewControllerRepresentable {
 
     class Coordinator: NSObject, UICollectionViewDataSource {
         var parent: CollectionView
+        private var appliedLayoutToken: AnyHashable?
 
         init(_ parent: CollectionView) {
             self.parent = parent
+            self.appliedLayoutToken = parent.layoutToken
+        }
+
+        func apply(to viewController: UICollectionViewController) {
+            let collectionView = viewController.collectionView
+            // swap the layout in place when its parameters changed (e.g. the
+            // cover height) instead of recreating the whole view, keeping
+            // the scroll position
+            if
+                let collectionView,
+                let token = parent.layoutToken,
+                token != appliedLayoutToken
+            {
+                appliedLayoutToken = token
+                let offset = collectionView.contentOffset
+                collectionView.setCollectionViewLayout(parent.layout, animated: false)
+                collectionView.contentOffset = offset
+            }
+            collectionView?.reloadData()
         }
 
         func numberOfSections(in collectionView: UICollectionView) -> Int {
