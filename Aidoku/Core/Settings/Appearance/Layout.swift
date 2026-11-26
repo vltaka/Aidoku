@@ -12,12 +12,14 @@ extension AppearanceSettings {
         case standard
         case compact
         case custom
+        case waterfall
 
         var title: String {
             switch self {
                 case .standard: NSLocalizedString("STANDARD")
                 case .compact: NSLocalizedString("COMPACT")
                 case .custom: NSLocalizedString("CUSTOM")
+                case .waterfall: NSLocalizedString("WATERFALL")
             }
         }
 
@@ -27,6 +29,7 @@ extension AppearanceSettings {
                 case .standard: UIDevice.current.userInterfaceIdiom == .pad ? "LayoutStandardPad" : "LayoutStandard"
                 case .compact: UIDevice.current.userInterfaceIdiom == .pad ? "LayoutCompactPad" : "LayoutCompact"
                 case .custom: UIDevice.current.userInterfaceIdiom == .pad ? "LayoutCustomPad" : "LayoutCustom"
+                case .waterfall: UIDevice.current.userInterfaceIdiom == .pad ? "LayoutCustomPad" : "LayoutCustom"
             }
         }
     }
