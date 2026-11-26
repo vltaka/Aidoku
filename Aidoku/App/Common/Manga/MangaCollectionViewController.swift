@@ -21,6 +21,11 @@ class MangaCollectionViewController: BaseCollectionViewController {
         waterfallRelayoutWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+            if self.collectionView.isDragging || self.collectionView.isDecelerating {
+                // don't reshuffle cells mid-scroll; retry once scrolling settles
+                self.scheduleWaterfallRelayout()
+                return
+            }
             self.collectionView.collectionViewLayout.invalidateLayout()
         }
         waterfallRelayoutWorkItem = item
@@ -141,7 +146,7 @@ class MangaCollectionViewController: BaseCollectionViewController {
             if self.bookmarkedItems.insert(entry.key).inserted {
                 var snapshot = self.dataSource.snapshot()
                 snapshot.reloadItems([entry])
-                self.dataSource.apply(snapshot)
+                self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
             }
         }
 
@@ -157,7 +162,7 @@ class MangaCollectionViewController: BaseCollectionViewController {
             if self.bookmarkedItems.remove(entry.key) != nil {
                 var snapshot = self.dataSource.snapshot()
                 snapshot.reloadItems([entry])
-                self.dataSource.apply(snapshot)
+                self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
             }
         }
     }
@@ -340,7 +345,7 @@ extension MangaCollectionViewController {
                         self.bookmarkedItems.remove(entry.key)
                         var snapshot = self.dataSource.snapshot()
                         snapshot.reloadItems([entry])
-                        self.dataSource.apply(snapshot)
+                        self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
                         // remove from library
                         Task {
                             await MangaManager.shared.removeFromLibrary(mangaId: entry.identifier)
@@ -376,7 +381,7 @@ extension MangaCollectionViewController {
                             self.bookmarkedItems.insert(entry.key)
                             var snapshot = self.dataSource.snapshot()
                             snapshot.reloadItems([entry])
-                            await self.dataSource.apply(snapshot)
+                            await self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
 
                             // add to library
                             await MangaManager.shared.addToLibrary(
