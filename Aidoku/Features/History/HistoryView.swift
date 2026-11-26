@@ -25,7 +25,7 @@ struct HistoryView: View {
 
     // 0 = list, 1 = grid, 2 = waterfall
     @AppStorage("History.displayMode") private var displayMode = 0
-    @State private var aspectCacheVersion = 0
+    @State private var distributionCache = WaterfallDistributionCache()
 
     @State private var listSelection: String? // fix for list highlighting being buggy
 
@@ -155,9 +155,6 @@ struct HistoryView: View {
             // update locked state when the setting changes
             locked = UserDefaults.standard.bool(forKey: "History.lockHistoryTab")
         }
-        .onReceive(NotificationCenter.default.publisher(for: CoverAspectCache.didUpdateNotification)) { _ in
-            aspectCacheVersion += 1
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             // lock the view when the app is backgrounded
             locked = UserDefaults.standard.bool(forKey: "History.lockHistoryTab")
@@ -271,7 +268,6 @@ struct HistoryView: View {
     // still grouped into date sections like the list
     private var historyGridContent: some View {
         GeometryReader { geometry in
-            let _ = aspectCacheVersion
             let columnCount = OldMangaCollectionViewController.getGridItemsPerRow(
                 containerWidth: geometry.size.width,
                 isLandscape: geometry.size.width > geometry.size.height,
@@ -287,6 +283,10 @@ struct HistoryView: View {
                                     .font(.body.weight(.medium))
                                     .padding(.horizontal, 20)
 
+                                let itemWidth = max(
+                                    0,
+                                    (geometry.size.width - 32 - CGFloat(columnCount - 1) * 12) / CGFloat(columnCount)
+                                )
                                 if displayMode == 1 {
                                     LazyVGrid(
                                         columns: Array(
@@ -296,32 +296,47 @@ struct HistoryView: View {
                                         spacing: 12
                                     ) {
                                         ForEach(section.entries, id: \.chapterId) { entry in
-                                            historyCoverItem(entry: entry, aspectRatio: 2.0 / 3.0)
+                                            historyCoverItem(entry: entry, aspectRatio: 2.0 / 3.0, itemWidth: itemWidth)
                                         }
                                     }
                                     .padding(.horizontal, 16)
                                 } else {
-                                    let itemWidth = max(
-                                        0,
-                                        (geometry.size.width - 32 - CGFloat(columnCount - 1) * 12) / CGFloat(columnCount)
-                                    )
-                                    let distribution = WaterfallDistributor.distribute(
-                                        count: section.entries.count,
-                                        columns: columnCount
-                                    ) { index in
-                                        let manga = viewModel.mangaCache[section.entries[index].chapterId.mangaIdentifier]
-                                        let ratio = CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
-                                        return itemWidth / ratio + 44 // cover plus title/subtitle text
+                                    // freeze the distribution (and the ratios it
+                                    // assumed) per section, so covers never
+                                    // change places once shown
+                                    let cacheKey = "history-\(section.daysAgo)"
+                                    let signature = "\(section.entries.count)|\(columnCount)"
+                                    let distribution = distributionCache.distribution(key: cacheKey, signature: signature) {
+                                        var ratios: [String: CGFloat] = [:]
+                                        let result = WaterfallDistributor.distribute(
+                                            count: section.entries.count,
+                                            columns: columnCount
+                                        ) { index in
+                                            let entry = section.entries[index]
+                                            let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
+                                            let ratio = CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
+                                            ratios[entry.chapterId.mangaIdentifier.mangaKey] = ratio
+                                            return itemWidth / ratio
+                                                + WaterfallItemMetrics.textHeight(
+                                                    title: manga?.title ?? "",
+                                                    tags: manga?.tags ?? [],
+                                                    width: itemWidth
+                                                )
+                                                + 20 // chapter/progress subtitle line
+                                        }
+                                        distributionCache.setValues(ratios, for: cacheKey)
+                                        return result
                                     }
+                                    let frozenRatios = distributionCache.values(for: cacheKey) ?? [:]
                                     HStack(alignment: .top, spacing: 12) {
                                         ForEach(distribution.indices, id: \.self) { column in
                                             LazyVStack(spacing: 12) {
                                                 ForEach(distribution[column], id: \.self) { index in
                                                     let entry = section.entries[index]
-                                                    let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
                                                     historyCoverItem(
                                                         entry: entry,
-                                                        aspectRatio: CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
+                                                        aspectRatio: frozenRatios[entry.chapterId.mangaIdentifier.mangaKey] ?? (2.0 / 3.0),
+                                                        itemWidth: itemWidth
                                                     )
                                                 }
                                             }
@@ -349,10 +364,13 @@ struct HistoryView: View {
         }
     }
 
-    private func historyCoverItem(entry: HistoryEntry, aspectRatio: CGFloat) -> some View {
+    private func historyCoverItem(entry: HistoryEntry, aspectRatio: CGFloat, itemWidth: CGFloat) -> some View {
         let source = viewModel.sourceCache[entry.chapterId.sourceKey]
         let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
         let chapter = viewModel.chapterCache[entry.chapterId]
+        let language = CoverLanguageBadge.text(forLanguageCode: chapter?.language)
+            ?? CoverLanguageBadge.text(for: source)
+        let tags = manga?.tags ?? []
         return Button {
             if let manga {
                 path.push(MangaViewController(manga: manga, parent: path.rootViewController))
@@ -375,9 +393,37 @@ struct HistoryView: View {
                         RoundedRectangle(cornerRadius: 5)
                             .strokeBorder(Color(UIColor.quaternarySystemFill), lineWidth: 1)
                     )
+                    .overlay(alignment: .topLeading) {
+                        // language badge, only when the data has one
+                        if let language, !language.isEmpty {
+                            Text(language.uppercased())
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                .padding(5)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // source badge: history mixes sources, so each entry
+                        // is labelled with the source it came from
+                        if let sourceName = source?.name, !sourceName.isEmpty {
+                            Text(sourceName)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                .padding(5)
+                        }
+                    }
 
                 Text(manga?.title ?? "")
-                    .font(.subheadline)
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -386,6 +432,19 @@ struct HistoryView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+
+                if !tags.isEmpty {
+                    let rows = WaterfallItemMetrics.tagRows(tags: tags, width: itemWidth)
+                    VStack(alignment: .leading, spacing: WaterfallItemMetrics.tagRowSpacing) {
+                        ForEach(rows.indices, id: \.self) { row in
+                            HStack(spacing: WaterfallItemMetrics.tagChipSpacing) {
+                                ForEach(rows[row], id: \.self) { tag in
+                                    LabelView(text: tag)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         .buttonStyle(.plain)
