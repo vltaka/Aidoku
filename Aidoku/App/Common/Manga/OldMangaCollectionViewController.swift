@@ -40,8 +40,13 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
     }
 
     override func observe() {
+        addObserver(forName: AppSettings.appearance.layout.key) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.collectionView.collectionViewLayout = self.makeCollectionViewLayout()
+            }
+        }
         let keys = [
-            AppSettings.appearance.layout.key,
             AppSettings.appearance.customPortraitRows.key,
             AppSettings.appearance.customLandscapeRows.key
         ]
@@ -52,6 +57,26 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
                 }
             }
         }
+        addObserver(forName: CoverAspectCache.didUpdateNotification) { [weak self] _ in
+            Task { @MainActor in
+                self?.scheduleWaterfallRelayout()
+            }
+        }
+    }
+
+    private var waterfallRelayoutWorkItem: DispatchWorkItem?
+
+    /// Coalesce cover aspect ratio updates into a single waterfall relayout,
+    /// so a page of covers loading at once doesn't cause repeated layout passes.
+    func scheduleWaterfallRelayout() {
+        guard collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+        waterfallRelayoutWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+            self.collectionView.collectionViewLayout.invalidateLayout()
+        }
+        waterfallRelayoutWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
     }
 
     // MARK: Cell Registration
@@ -81,6 +106,11 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
 
     // MARK: Collection View Layout
     override func makeCollectionViewLayout() -> UICollectionViewLayout {
+        if !usesListLayout, AppSettings.appearance.layout.get() == .waterfall {
+            let layout = MangaWaterfallLayout()
+            layout.delegate = self
+            return layout
+        }
         let layout = UICollectionViewCompositionalLayout { [weak self] sectionIndex, environment in
             guard let self else { return nil }
             switch Section(rawValue: sectionIndex) {
@@ -172,7 +202,7 @@ extension OldMangaCollectionViewController {
             case .compact:
                 let idealWidth: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 150 : 120
                 return max(1, Int(floor(containerWidth / idealWidth)))
-            case .custom:
+            case .custom, .waterfall:
                 return if isLandscape {
                     AppSettings.appearance.customLandscapeRows.get()
                 } else {
@@ -420,5 +450,16 @@ extension OldMangaCollectionViewController {
 
         self.collectionView.scrollToItem(at: newFocusedndexPath, at: .centeredVertically, animated: true)
         self.focusedIndexPath = newFocusedndexPath
+    }
+}
+
+// MARK: - Waterfall Layout Delegate
+extension OldMangaCollectionViewController: MangaWaterfallLayoutDelegate {
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        aspectRatioForItemAt indexPath: IndexPath
+    ) -> CGFloat {
+        let coverUrl = dataSource.itemIdentifier(for: indexPath)?.coverUrl?.absoluteString
+        return CoverAspectCache.shared.aspectRatio(for: coverUrl) ?? (2.0 / 3.0)
     }
 }
