@@ -23,6 +23,10 @@ struct HistoryView: View {
 
     @State private var locked = UserDefaults.standard.bool(forKey: "History.lockHistoryTab")
 
+    // 0 = list, 1 = grid, 2 = waterfall
+    @AppStorage("History.displayMode") private var displayMode = 0
+    @State private var aspectCacheVersion = 0
+
     @State private var listSelection: String? // fix for list highlighting being buggy
 
     @State private var openingLastRead = false
@@ -40,6 +44,8 @@ struct HistoryView: View {
                     description: Text(NSLocalizedString("NO_HISTORY_TEXT"))
                 )
                 .ignoresSafeArea()
+            } else if displayMode != 0 {
+                historyGridContent
             } else {
                 List(selection: $listSelection) {
                     let sections = viewModel.filteredHistory.values.sorted { $0.daysAgo < $1.daysAgo }
@@ -91,6 +97,15 @@ struct HistoryView: View {
         .navigationBarTitleDisplayMode(.automatic)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    Picker("显示模式", selection: $displayMode) {
+                        Text("列表").tag(0)
+                        Text("网格").tag(1)
+                        Text("瀑布流").tag(2)
+                    }
+                } label: {
+                    Image(systemName: displayMode == 0 ? "list.bullet" : displayMode == 1 ? "square.grid.2x2" : "square.grid.3x3")
+                }
                 if UserDefaults.standard.bool(forKey: "History.lockHistoryTab") {
                     Button {
                         if locked {
@@ -139,6 +154,9 @@ struct HistoryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .historyLockTabSetting)) { _ in
             // update locked state when the setting changes
             locked = UserDefaults.standard.bool(forKey: "History.lockHistoryTab")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CoverAspectCache.didUpdateNotification)) { _ in
+            aspectCacheVersion += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             // lock the view when the app is backgrounded
@@ -247,6 +265,156 @@ struct HistoryView: View {
         .listRowSeparator(.hidden)
         .listRowInsets(.zero)
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // grid (mode 1) and waterfall (mode 2) rendering of the history entries,
+    // still grouped into date sections like the list
+    private var historyGridContent: some View {
+        GeometryReader { geometry in
+            let _ = aspectCacheVersion
+            let columnCount = OldMangaCollectionViewController.getGridItemsPerRow(
+                containerWidth: geometry.size.width,
+                isLandscape: geometry.size.width > geometry.size.height,
+                layout: .custom
+            )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    let sections = viewModel.filteredHistory.values.sorted { $0.daysAgo < $1.daysAgo }
+                    ForEach(sections, id: \.daysAgo) { section in
+                        if !section.entries.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(Date.makeRelativeDate(days: section.daysAgo))
+                                    .font(.body.weight(.medium))
+                                    .padding(.horizontal, 20)
+
+                                if displayMode == 1 {
+                                    LazyVGrid(
+                                        columns: Array(
+                                            repeating: GridItem(.flexible(), spacing: 12),
+                                            count: columnCount
+                                        ),
+                                        spacing: 12
+                                    ) {
+                                        ForEach(section.entries, id: \.chapterId) { entry in
+                                            historyCoverItem(entry: entry, aspectRatio: 2.0 / 3.0)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                } else {
+                                    let itemWidth = max(
+                                        0,
+                                        (geometry.size.width - 32 - CGFloat(columnCount - 1) * 12) / CGFloat(columnCount)
+                                    )
+                                    let distribution = WaterfallDistributor.distribute(
+                                        count: section.entries.count,
+                                        columns: columnCount
+                                    ) { index in
+                                        let manga = viewModel.mangaCache[section.entries[index].chapterId.mangaIdentifier]
+                                        let ratio = CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
+                                        return itemWidth / ratio + 44 // cover plus title/subtitle text
+                                    }
+                                    HStack(alignment: .top, spacing: 12) {
+                                        ForEach(distribution.indices, id: \.self) { column in
+                                            LazyVStack(spacing: 12) {
+                                                ForEach(distribution[column], id: \.self) { index in
+                                                    let entry = section.entries[index]
+                                                    let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
+                                                    historyCoverItem(
+                                                        entry: entry,
+                                                        aspectRatio: CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
+                                                    )
+                                                }
+                                            }
+                                            .frame(width: itemWidth)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                }
+                            }
+                        }
+                    }
+
+                    if viewModel.loadingState != .complete {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .onAppear {
+                                tryLoadingMore()
+                            }
+                    }
+                }
+                .padding(.vertical, 10)
+            }
+            .background(Color(uiColor: .systemBackground))
+        }
+    }
+
+    private func historyCoverItem(entry: HistoryEntry, aspectRatio: CGFloat) -> some View {
+        let source = viewModel.sourceCache[entry.chapterId.sourceKey]
+        let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
+        let chapter = viewModel.chapterCache[entry.chapterId]
+        return Button {
+            if let manga {
+                path.push(MangaViewController(manga: manga, parent: path.rootViewController))
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Rectangle()
+                    .fill(Color.clear)
+                    .aspectRatio(aspectRatio, contentMode: .fill)
+                    .background {
+                        SourceImageView(
+                            source: source,
+                            imageUrl: manga?.cover ?? "",
+                            downsampleWidth: 400
+                        )
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 5))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color(UIColor.quaternarySystemFill), lineWidth: 1)
+                    )
+
+                Text(manga?.title ?? "")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Text(historySubtitle(entry: entry, chapter: chapter))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func historySubtitle(entry: HistoryEntry, chapter: AidokuRunner.Chapter?) -> String {
+        var components: [String] = []
+        if let volumeNum = chapter?.volumeNumber, volumeNum >= 0 {
+            if let chapterNum = chapter?.chapterNumber, chapterNum >= 0 {
+                components.append([
+                    String(format: NSLocalizedString("VOL_X"), volumeNum),
+                    String(format: NSLocalizedString("CH_X"), chapterNum)
+                ].joined(separator: " "))
+            } else {
+                components.append(String(format: NSLocalizedString("VOL_SPACE_X"), volumeNum))
+            }
+        } else if let chapterNum = chapter?.chapterNumber, chapterNum >= 0 {
+            components.append(String(format: NSLocalizedString("CH_SPACE_X"), chapterNum))
+        } else if let title = chapter?.title, chapter?.chapterNumber == nil && chapter?.volumeNumber == nil {
+            components.append(title)
+        }
+        if let currentPage = entry.currentPage, let totalPages = entry.totalPages, currentPage > 0, currentPage < totalPages {
+            components.append(String(format: NSLocalizedString("PAGE_X_OF_X"), currentPage, totalPages))
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        components.append(formatter.string(from: entry.date))
+        return components.joined(separator: " - ")
     }
 
     // load more history entries if the loading state is idle
