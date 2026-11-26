@@ -105,10 +105,10 @@ struct HomeListView: View {
                             ],
                             layout: UICollectionViewCompositionalLayout { _, layoutEnvironment in
                                 getSection(layoutEnvironment)
-                            }
+                            },
+                            layoutToken: coverHeight
                         )
                         .frame(height: height)
-                        .id(coverHeight)
                     } else {
                         LazyVStack {
                             ForEach(entries.indices, id: \.self) { offset in

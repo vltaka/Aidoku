@@ -21,6 +21,8 @@ struct HomeChapterListView: View {
 
     @State private var bookmarkedItems: Set<String> = .init()
     @State private var loadedBookmarks = false
+    // chapter list rows share the manga list cover height slider
+    @State private var coverHeight: CGFloat = 100
 
     init(
         source: AidokuRunner.Source,
@@ -37,6 +39,7 @@ struct HomeChapterListView: View {
         self.pageSize = pageSize
         self.entries = entries
         self.listing = listing
+        self._coverHeight = State(initialValue: CGFloat(AppSettings.appearance.listCoverHeight.get()))
     }
 
     var body: some View {
@@ -62,7 +65,8 @@ struct HomeChapterListView: View {
                     if let pageSize {
                         let (getSection, height) = CollectionView.mangaListLayout(
                             itemsPerPage: pageSize,
-                            totalItems: entries.count
+                            totalItems: entries.count,
+                            itemHeight: coverHeight
                         )
                         CollectionView(
                             sections: [
@@ -74,7 +78,8 @@ struct HomeChapterListView: View {
                             ],
                             layout: UICollectionViewCompositionalLayout { _, layoutEnvironment in
                                 getSection(layoutEnvironment)
-                            }
+                            },
+                            layoutToken: coverHeight
                         )
                         .frame(height: height)
                     } else {
@@ -100,6 +105,9 @@ struct HomeChapterListView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.listCoverHeight.key))) { _ in
+            coverHeight = CGFloat(AppSettings.appearance.listCoverHeight.get())
+        }
     }
 
     @ContentBuilder
@@ -111,8 +119,8 @@ struct HomeChapterListView: View {
                 MangaCoverView(
                     source: source,
                     coverImage: entry.manga.cover ?? "",
-                    width: 100 * 2/3,
-                    height: 100,
+                    width: coverHeight * 2/3,
+                    height: coverHeight,
                     downsampleWidth: 200,
                     bookmarked: bookmarkedItems.contains(entry.manga.key)
                 )

@@ -22,6 +22,7 @@ struct HomeScrollerView: View {
     @State private var coverHeight: CGFloat = 180
     @State private var bookmarkedItems: Set<String> = .init()
     @State private var loadedBookmarks = false
+    @State private var scrolledEntryIndex: Int?
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -186,6 +187,7 @@ struct HomeScrollerView: View {
                     .scrollTargetLayoutPlease()
                 }
                 .scrollViewAlignedPlease()
+                .scrollPositionPlease(id: $scrolledEntryIndex)
                 .task {
                     if !loadedBookmarks {
                         await loadBookmarked()
