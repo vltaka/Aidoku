@@ -21,6 +21,10 @@ struct SourceImageView: View {
     var placeholder = "MangaPlaceholder"
 
     @State private var imageRequest: ImageRequest?
+    // the last image this view actually displayed, kept in the view's own
+    // state so a re-render (e.g. the multitasking snapshot pass) can draw
+    // it synchronously instead of falling back to the placeholder
+    @State private var pinnedImage: UIImage?
 
     private var processors: [ImageProcessing] {
         var processors: [ImageProcessing] = []
@@ -34,9 +38,15 @@ struct SourceImageView: View {
     }
 
     var body: some View {
-        // if this cover was already displayed once, show the cached image
-        // immediately so a recreated view doesn't flash the placeholder
-        if let cachedImage = CoverImageMemoryCache.shared.image(for: imageUrl, downsampleWidth: downsampleWidth) {
+        // if this view already showed the cover, draw the pinned image
+        // synchronously; otherwise fall back to the shared memory cache so
+        // a recreated view doesn't flash the placeholder either
+        if let pinnedImage {
+            Image(uiImage: pinnedImage)
+                .resizable()
+                .aspectRatio(contentMode: contentMode)
+                .frame(width: width, height: height)
+        } else if let cachedImage = CoverImageMemoryCache.shared.image(for: imageUrl, downsampleWidth: downsampleWidth) {
             Image(uiImage: cachedImage)
                 .resizable()
                 .aspectRatio(contentMode: contentMode)
@@ -71,6 +81,7 @@ struct SourceImageView: View {
                     .id(state.image != nil ? imageUrl : "placeholder") // ensures only opacity is animated
                     .onAppear {
                         if let container = state.imageContainer {
+                            pinnedImage = container.image
                             CoverImageMemoryCache.shared.store(
                                 container.image,
                                 for: imageUrl,
@@ -90,6 +101,7 @@ struct SourceImageView: View {
         }
         .onChange(of: imageUrl) { newValue in
             imageRequest = nil
+            pinnedImage = nil
             Task {
                 await loadImageRequest(url: newValue)
             }
