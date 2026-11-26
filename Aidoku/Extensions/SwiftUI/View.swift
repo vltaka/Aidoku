@@ -79,6 +79,17 @@ extension View {
         }
     }
 
+    // anchors a scroll view's position to an item id, so the position is
+    // restored to the same item when the view is re-laid out (e.g. after
+    // returning from a pushed view) instead of snapping elsewhere
+    func scrollPositionPlease(id: Binding<Int?>) -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            return self.scrollPosition(id: id)
+        } else {
+            return self
+        }
+    }
+
 //    func scrollPagingPlease() -> some View {
 //        if #available(iOS 17.0, macOS 14.0, *) {
 //            return self.scrollTargetBehavior(.paging)
