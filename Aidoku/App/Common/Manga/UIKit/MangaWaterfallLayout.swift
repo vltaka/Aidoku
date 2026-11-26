@@ -15,6 +15,24 @@ protocol MangaWaterfallLayoutDelegate: AnyObject {
         _ layout: MangaWaterfallLayout,
         aspectRatioForItemAt indexPath: IndexPath
     ) -> CGFloat
+
+    /// Height of the text block (title + tag chips) shown below the cover
+    /// for the item at the given width. Zero for cover-only items.
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        textHeightForItemAt indexPath: IndexPath,
+        width: CGFloat
+    ) -> CGFloat
+}
+
+extension MangaWaterfallLayoutDelegate {
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        textHeightForItemAt indexPath: IndexPath,
+        width: CGFloat
+    ) -> CGFloat {
+        0
+    }
 }
 
 final class MangaWaterfallLayout: UICollectionViewLayout {
@@ -68,7 +86,12 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
             for item in 0..<collectionView.numberOfItems(inSection: section) {
                 let indexPath = IndexPath(item: item, section: section)
                 let ratio = delegate?.waterfallLayout(self, aspectRatioForItemAt: indexPath) ?? (2.0 / 3.0)
-                let height = columnWidth / min(max(ratio, 0.2), 5)
+                let textHeight = delegate?.waterfallLayout(
+                    self,
+                    textHeightForItemAt: indexPath,
+                    width: columnWidth
+                ) ?? 0
+                let height = columnWidth / min(max(ratio, 0.2), 5) + textHeight
 
                 var column = 0
                 for index in 1..<columns where columnHeights[index] < columnHeights[column] {

@@ -239,7 +239,7 @@ extension MangaListCell {
         titleLabel.text = manga.title
         subtitleLabel.text = manga.authors?.joined(separator: ", ")
         subtitleLabel.isHidden = subtitleLabel.text?.isEmpty ?? true
-        bookmarkImageView.image = isBookmarked ? UIImage(systemName: "bookmark.fill") : nil
+        setBookmarked(isBookmarked)
 
         if let tags = manga.tags, !tags.isEmpty {
             tagScrollView.tags = tags
@@ -251,6 +251,12 @@ extension MangaListCell {
         Task {
             await loadImage(url: manga.cover.flatMap { URL(string: $0) })
         }
+    }
+
+    /// Toggle the bookmark icon in place, without reconfiguring the cell
+    /// (a reconfigure resets the cover to the placeholder and re-fetches it).
+    func setBookmarked(_ bookmarked: Bool) {
+        bookmarkImageView.image = bookmarked ? UIImage(systemName: "bookmark.fill") : nil
     }
 
     func configure(with info: MangaInfo) {
