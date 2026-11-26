@@ -13,6 +13,7 @@ struct MangaInfo: Hashable, Sendable {
     var coverUrl: URL?
     var title: String?
     var author: String?
+    var tags: [String]?
 
     var url: URL?
 

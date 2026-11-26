@@ -154,7 +154,8 @@ class Manga: Codable, Hashable {
             id: identifier,
             coverUrl: coverUrl,
             title: title,
-            author: author
+            author: author,
+            tags: tags
         )
     }
 
