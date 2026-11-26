@@ -14,7 +14,9 @@ struct AppearanceSettings: Sendable {
             appearance,
             layout,
             customPortraitRows,
-            customLandscapeRows
+            customLandscapeRows,
+            listCoverHeight,
+            scrollerCoverHeight
         ]
     }
 
@@ -24,4 +26,7 @@ struct AppearanceSettings: Sendable {
     let layout = SettingsKey<Layout>("Appearance.layout", default: .standard)
     let customPortraitRows = SettingsKey<Int>("Appearance.customPortraitRows", default: UIDevice.current.userInterfaceIdiom == .pad ? 5 : 2)
     let customLandscapeRows = SettingsKey<Int>("Appearance.customLandscapeRows", default: UIDevice.current.userInterfaceIdiom == .pad ? 6 : 4)
+
+    let listCoverHeight = SettingsKey<Double>("Appearance.listCoverHeight", default: 100)
+    let scrollerCoverHeight = SettingsKey<Double>("Appearance.scrollerCoverHeight", default: 180)
 }
