@@ -276,6 +276,7 @@ extension LibraryViewModel {
                     coverUrl: mangaObject.cover.flatMap { URL(string: $0) },
                     title: mangaObject.title,
                     author: mangaObject.author,
+                    tags: mangaObject.tags,
                     url: mangaObject.url.flatMap { URL(string: $0) }
                 )
 

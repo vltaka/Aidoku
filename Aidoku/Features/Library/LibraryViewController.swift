@@ -63,13 +63,39 @@ class LibraryViewController: OldMangaCollectionViewController {
     override var undoManager: UndoManager { libraryUndoManager }
     override var canBecomeFirstResponder: Bool { true }
 
-    override var usesListLayout: Bool {
+    /// The library's own display mode, independent of the global
+    /// appearance layout (the two never override each other).
+    enum DisplayMode: Int {
+        case grid = 0
+        case list = 1
+        case waterfall = 2
+    }
+
+    var displayMode: DisplayMode {
         get {
-            AppSettings.library.listView.get()
+            if let mode = DisplayMode(rawValue: AppSettings.library.displayMode.get()) {
+                return mode
+            }
+            // fall back to the legacy list/grid flag
+            return AppSettings.library.listView.get() ? .list : .grid
         }
         set {
-            AppSettings.library.listView.set(newValue)
+            AppSettings.library.displayMode.set(newValue.rawValue)
+            AppSettings.library.listView.set(newValue == .list)
         }
+    }
+
+    override var usesListLayout: Bool {
+        get {
+            displayMode == .list
+        }
+        set {
+            displayMode = newValue ? .list : .grid
+        }
+    }
+
+    override var usesWaterfallLayout: Bool {
+        displayMode == .waterfall
     }
 
     override init() {
@@ -517,6 +543,15 @@ class LibraryViewController: OldMangaCollectionViewController {
         cell.setEditing(isEditing, animated: false)
     }
 
+    override func configure(cell: MangaWaterfallCell, info: MangaInfo, indexPath: IndexPath) {
+        super.configure(cell: cell, info: info, indexPath: indexPath)
+
+        cell.badgeNumber = viewModel.badgeType.contains(.unread) ? info.unread : 0
+        cell.badgeNumber2 = viewModel.badgeType.contains(.downloaded) ? info.downloads : 0
+
+        cell.setEditing(isEditing, animated: false)
+    }
+
     override func setEditing(_ editing: Bool, animated: Bool) {
         super.setEditing(editing, animated: animated)
         updateNavbarItems()
@@ -530,6 +565,8 @@ class LibraryViewController: OldMangaCollectionViewController {
             if let cell = cell as? MangaGridCell {
                 cell.setEditing(editing, animated: animated)
             } else if let cell = cell as? MangaListCell {
+                cell.setEditing(editing, animated: animated)
+            } else if let cell = cell as? MangaWaterfallCell {
                 cell.setEditing(editing, animated: animated)
             }
         }
@@ -1123,10 +1160,10 @@ extension LibraryViewController {
             UIAction(
                 title: NSLocalizedString("LAYOUT_GRID"),
                 image: UIImage(systemName: "square.grid.2x2"),
-                state: usesListLayout ? .off : .on
+                state: displayMode == .grid ? .on : .off
             ) { [weak self] _ in
-                guard let self, self.usesListLayout else { return }
-                self.usesListLayout = false
+                guard let self, self.displayMode != .grid else { return }
+                self.displayMode = .grid
                 self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
                 self.collectionView.reloadData()
                 self.updateMoreMenu()
@@ -1134,10 +1171,21 @@ extension LibraryViewController {
             UIAction(
                 title: NSLocalizedString("LAYOUT_LIST"),
                 image: UIImage(systemName: "list.bullet"),
-                state: usesListLayout ? .on : .off
+                state: displayMode == .list ? .on : .off
             ) { [weak self] _ in
-                guard let self, !self.usesListLayout else { return }
-                self.usesListLayout = true
+                guard let self, self.displayMode != .list else { return }
+                self.displayMode = .list
+                self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
+                self.collectionView.reloadData()
+                self.updateMoreMenu()
+            },
+            UIAction(
+                title: NSLocalizedString("WATERFALL"),
+                image: UIImage(systemName: "square.grid.3x3"),
+                state: displayMode == .waterfall ? .on : .off
+            ) { [weak self] _ in
+                guard let self, self.displayMode != .waterfall else { return }
+                self.displayMode = .waterfall
                 self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
                 self.collectionView.reloadData()
                 self.updateMoreMenu()
