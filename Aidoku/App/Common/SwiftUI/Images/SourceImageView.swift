@@ -34,6 +34,19 @@ struct SourceImageView: View {
     }
 
     var body: some View {
+        // if this cover was already displayed once, show the cached image
+        // immediately so a recreated view doesn't flash the placeholder
+        if let cachedImage = CoverImageMemoryCache.shared.image(for: imageUrl, downsampleWidth: downsampleWidth) {
+            Image(uiImage: cachedImage)
+                .resizable()
+                .aspectRatio(contentMode: contentMode)
+                .frame(width: width, height: height)
+        } else {
+            lazyImage
+        }
+    }
+
+    private var lazyImage: some View {
         LazyImage(
             request: imageRequest,
             transaction: .init(animation: .default)
@@ -56,6 +69,16 @@ struct SourceImageView: View {
                     .aspectRatio(contentMode: contentMode)
                     .frame(width: width, height: height)
                     .id(state.image != nil ? imageUrl : "placeholder") // ensures only opacity is animated
+                    .onAppear {
+                        if let container = state.imageContainer {
+                            CoverImageMemoryCache.shared.store(
+                                container.image,
+                                for: imageUrl,
+                                downsampleWidth: downsampleWidth
+                            )
+                            CoverAspectCache.shared.record(url: imageUrl, size: container.image.size)
+                        }
+                    }
             }
         }
         .processors(processors)
