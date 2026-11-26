@@ -13,6 +13,7 @@ struct LibrarySettings: Sendable {
             sortOption,
             sortAscending,
             listView,
+            displayMode,
             lastUpdated,
             opensReaderView,
             resumeLastOpenedChapter,
@@ -39,6 +40,11 @@ struct LibrarySettings: Sendable {
     let sortOption = SettingsKey<Int>("Library.sortOption", default: LibraryViewModel.SortMethod.lastOpened.rawValue)
     let sortAscending = SettingsKey<Bool>("Library.sortAscending", default: false)
     let listView = SettingsKey<Bool>("Library.listView", default: false)
+    // the library's own display mode: 0 = grid, 1 = list, 2 = waterfall.
+    // -1 (unset) falls back to the legacy listView flag. Kept separate
+    // from the global appearance layout so the two never override
+    // each other.
+    let displayMode = SettingsKey<Int>("Library.displayMode", default: -1)
 
     let lastUpdated = SettingsKey<Date>("Library.lastUpdated", default: Date.distantPast)
     let opensReaderView = SettingsKey<Bool>("Library.opensReaderView", default: false)
