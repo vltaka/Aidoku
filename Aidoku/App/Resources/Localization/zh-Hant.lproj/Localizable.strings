@@ -727,6 +727,7 @@
 "STANDARD" = "標準";
 "COMPACT" = "精簡";
 "CUSTOM" = "自定義";
+"WATERFALL" = "瀑布流";
 "PORTRAIT_ROWS" = "直向行數";
 "LANDSCAPE_ROWS" = "橫向列數";
 "RESUME_LAST_OPENED_CHAPTER" = "繼續閱讀上次的章節";
