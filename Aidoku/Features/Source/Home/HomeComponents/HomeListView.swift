@@ -27,6 +27,7 @@ struct HomeListView: View {
     @State private var loadingMore = false
     @State private var bookmarkedItemsState: Set<String> = .init()
     @State private var loadedBookmarks: Bool
+    @State private var coverHeight: CGFloat = 100
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -60,6 +61,7 @@ struct HomeListView: View {
         self.pageSize = pageSize
         self.entries = entries
         self.listing = listing
+        self._coverHeight = State(initialValue: CGFloat(AppSettings.appearance.listCoverHeight.get()))
     }
 
     var body: some View {
@@ -85,7 +87,8 @@ struct HomeListView: View {
                     if let pageSize {
                         let (getSection, height) = CollectionView.mangaListLayout(
                             itemsPerPage: pageSize,
-                            totalItems: entries.count
+                            totalItems: entries.count,
+                            itemHeight: coverHeight
                         )
                         CollectionView(
                             sections: [
@@ -103,6 +106,7 @@ struct HomeListView: View {
                             }
                         )
                         .frame(height: height)
+                        .id(coverHeight)
                     } else {
                         LazyVStack {
                             ForEach(entries.indices, id: \.self) { offset in
@@ -131,6 +135,9 @@ struct HomeListView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.listCoverHeight.key))) { _ in
+            coverHeight = CGFloat(AppSettings.appearance.listCoverHeight.get())
+        }
     }
 
     @ContentBuilder
@@ -158,8 +165,8 @@ struct HomeListView: View {
             MangaCoverView(
                 source: source,
                 coverImage: entry.imageUrl ?? "",
-                width: 100 * 2/3,
-                height: 100,
+                width: coverHeight * 2/3,
+                height: coverHeight,
                 downsampleWidth: 200,
                 bookmarked: mangaKey.flatMap { (usesBookmarksState ? bookmarkedItemsState : bookmarkedItems).contains($0) } ?? false
             )
@@ -311,12 +318,13 @@ struct PlaceholderMangaHomeList: View {
     }
 
     static func mainView(itemCount: Int) -> some View {
-        LazyVStack {
+        let coverHeight = CGFloat(AppSettings.appearance.listCoverHeight.get())
+        return LazyVStack {
             ForEach(0..<itemCount, id: \.self) { _ in
                 HStack {
                     Rectangle()
                         .fill(Color(.secondarySystemFill))
-                        .frame(width: 100 * 2/3, height: 100)
+                        .frame(width: coverHeight * 2/3, height: coverHeight)
                         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 4) {
