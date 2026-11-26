@@ -144,9 +144,7 @@ class MangaCollectionViewController: BaseCollectionViewController {
                 return
             }
             if self.bookmarkedItems.insert(entry.key).inserted {
-                var snapshot = self.dataSource.snapshot()
-                snapshot.reloadItems([entry])
-                self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
+                self.updateBookmarkBadge(for: entry)
             }
         }
 
@@ -160,10 +158,27 @@ class MangaCollectionViewController: BaseCollectionViewController {
                 return
             }
             if self.bookmarkedItems.remove(entry.key) != nil {
-                var snapshot = self.dataSource.snapshot()
-                snapshot.reloadItems([entry])
-                self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
+                self.updateBookmarkBadge(for: entry)
             }
+        }
+    }
+
+    /// Update a manga's bookmark badge in place, without reloading its cell.
+    /// Reloading the cell resets its cover to the placeholder and re-runs
+    /// the image request, which leaves a visible hole while the (possibly
+    /// slow) request completes — the badge is the only thing that changes.
+    func updateBookmarkBadge(for manga: AidokuRunner.Manga) {
+        guard
+            let indexPath = dataSource.indexPath(for: manga),
+            let cell = collectionView.cellForItem(at: indexPath)
+        else { return }
+        let bookmarked = bookmarkedItems.contains(manga.key)
+        if let cell = cell as? MangaGridCell {
+            cell.showsBookmark = bookmarked
+        } else if let cell = cell as? MangaListCell {
+            cell.setBookmarked(bookmarked)
+        } else if let cell = cell as? MangaWaterfallCell {
+            cell.showsBookmark = bookmarked
         }
     }
 
@@ -238,10 +253,38 @@ extension MangaCollectionViewController {
                 cellProvider: makeListCellRegistration().cellProvider
             )
         } else {
-            UICollectionViewDiffableDataSource(
-                collectionView: collectionView,
-                cellProvider: makeGridCellRegistration().cellProvider
-            )
+            collectionView.register(MangaWaterfallCell.self, forCellWithReuseIdentifier: "MangaWaterfallCell")
+            let gridProvider = makeGridCellRegistration().cellProvider
+            return UICollectionViewDiffableDataSource(
+                collectionView: collectionView
+            ) { [weak self] collectionView, indexPath, manga in
+                // the waterfall layout uses the text-below-cover cell;
+                // the regular grid keeps the overlay-title cell
+                if collectionView.collectionViewLayout is MangaWaterfallLayout {
+                    // swiftlint:disable:next force_cast
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: "MangaWaterfallCell",
+                        for: indexPath
+                    ) as! MangaWaterfallCell
+                    self?.configure(cell: cell, manga: manga)
+                    return cell
+                }
+                return gridProvider(collectionView, indexPath, manga)
+            }
+        }
+    }
+
+    func configure(cell: MangaWaterfallCell, manga: AidokuRunner.Manga) {
+        cell.identifier = MangaIdentifier(sourceKey: manga.sourceKey, mangaKey: manga.key)
+        cell.setContent(
+            title: manga.title,
+            tags: manga.tags ?? [],
+            language: CoverLanguageBadge.text(for: SourceManager.shared.store.source(for: manga.sourceKey)),
+            aspectRatio: CoverAspectCache.shared.aspectRatio(for: manga.cover) ?? (2.0 / 3.0),
+            bookmarked: bookmarkedItems.contains(manga.key)
+        )
+        Task {
+            await cell.loadImage(url: manga.cover.flatMap { URL(string: $0) })
         }
     }
 
@@ -265,6 +308,8 @@ extension MangaCollectionViewController {
             cell.highlight()
         } else if let cell = cell as? MangaListCell {
             cell.highlight()
+        } else if let cell = cell as? MangaWaterfallCell {
+            cell.highlight()
         }
     }
 
@@ -273,6 +318,8 @@ extension MangaCollectionViewController {
         if let cell = cell as? MangaGridCell {
             cell.unhighlight()
         } else if let cell = cell as? MangaListCell {
+            cell.unhighlight()
+        } else if let cell = cell as? MangaWaterfallCell {
             cell.unhighlight()
         }
     }
@@ -343,9 +390,7 @@ extension MangaCollectionViewController {
                     func commit() {
                         // remove bookmark icon
                         self.bookmarkedItems.remove(entry.key)
-                        var snapshot = self.dataSource.snapshot()
-                        snapshot.reloadItems([entry])
-                        self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
+                        self.updateBookmarkBadge(for: entry)
                         // remove from library
                         Task {
                             await MangaManager.shared.removeFromLibrary(mangaId: entry.identifier)
@@ -379,9 +424,7 @@ extension MangaCollectionViewController {
                         } else {
                             // add bookmark icon
                             self.bookmarkedItems.insert(entry.key)
-                            var snapshot = self.dataSource.snapshot()
-                            snapshot.reloadItems([entry])
-                            await self.dataSource.apply(snapshot, animatingDifferences: !(self.collectionView.collectionViewLayout is MangaWaterfallLayout))
+                            self.updateBookmarkBadge(for: entry)
 
                             // add to library
                             await MangaManager.shared.addToLibrary(
@@ -427,5 +470,18 @@ extension MangaCollectionViewController: MangaWaterfallLayoutDelegate {
     ) -> CGFloat {
         let cover = dataSource.itemIdentifier(for: indexPath)?.cover
         return CoverAspectCache.shared.aspectRatio(for: cover) ?? (2.0 / 3.0)
+    }
+
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        textHeightForItemAt indexPath: IndexPath,
+        width: CGFloat
+    ) -> CGFloat {
+        guard let manga = dataSource.itemIdentifier(for: indexPath) else { return 0 }
+        return WaterfallItemMetrics.textHeight(
+            title: manga.title,
+            tags: manga.tags ?? [],
+            width: width
+        )
     }
 }

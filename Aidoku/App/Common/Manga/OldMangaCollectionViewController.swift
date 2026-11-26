@@ -26,10 +26,18 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
         }
     }
 
+    /// Whether this controller should use the waterfall layout right now.
+    /// By default it follows the global appearance layout; the library
+    /// overrides this to use its own display mode instead.
+    var usesWaterfallLayout: Bool {
+        !usesListLayout && AppSettings.appearance.layout.get() == .waterfall
+    }
+
     override func configure() {
         super.configure()
         collectionView.register(MangaGridCell.self, forCellWithReuseIdentifier: "MangaGridCell")
         collectionView.register(MangaListCell.self, forCellWithReuseIdentifier: "MangaListCell")
+        collectionView.register(MangaWaterfallCell.self, forCellWithReuseIdentifier: "MangaWaterfallCell")
         collectionView.dataSource = dataSource
         collectionView.contentInset = UIEdgeInsets(
             top: 0,
@@ -73,6 +81,11 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
         waterfallRelayoutWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.collectionView.collectionViewLayout is MangaWaterfallLayout else { return }
+            if self.collectionView.isDragging || self.collectionView.isDecelerating {
+                // don't reshuffle cells mid-scroll; retry once scrolling settles
+                self.scheduleWaterfallRelayout()
+                return
+            }
             self.collectionView.collectionViewLayout.invalidateLayout()
         }
         waterfallRelayoutWorkItem = item
@@ -104,9 +117,30 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
         }
     }
 
+    func configure(cell: MangaWaterfallCell, info: MangaInfo, indexPath: IndexPath) {
+        cell.identifier = info.id
+        cell.setContent(
+            title: info.title,
+            tags: info.tags ?? [],
+            language: nil,
+            aspectRatio: CoverAspectCache.shared.aspectRatio(for: info.coverUrl?.absoluteString) ?? (2.0 / 3.0),
+            bookmarked: false
+        )
+
+        Task {
+            await cell.loadImage(url: info.coverUrl)
+        }
+
+        cell.setSelected(cell.isSelected, animated: false)
+
+        if indexPath == focusedIndexPath {
+            cell.highlight()
+        }
+    }
+
     // MARK: Collection View Layout
     override func makeCollectionViewLayout() -> UICollectionViewLayout {
-        if !usesListLayout, AppSettings.appearance.layout.get() == .waterfall {
+        if usesWaterfallLayout {
             let layout = MangaWaterfallLayout()
             layout.delegate = self
             return layout
@@ -220,6 +254,8 @@ extension OldMangaCollectionViewController {
             cell.highlight()
         } else if let cell = cell as? MangaListCell {
             cell.highlight()
+        } else if let cell = cell as? MangaWaterfallCell {
+            cell.highlight()
         }
     }
 
@@ -228,6 +264,8 @@ extension OldMangaCollectionViewController {
         if let cell = cell as? MangaGridCell {
             cell.unhighlight()
         } else if let cell = cell as? MangaListCell {
+            cell.unhighlight()
+        } else if let cell = cell as? MangaWaterfallCell {
             cell.unhighlight()
         }
     }
@@ -317,6 +355,13 @@ extension OldMangaCollectionViewController {
                     withReuseIdentifier: "MangaListCell",
                     for: indexPath
                 ) as! MangaListCell
+                self?.configure(cell: cell, info: item, indexPath: indexPath)
+                return cell
+            } else if collectionView.collectionViewLayout is MangaWaterfallLayout {
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: "MangaWaterfallCell",
+                    for: indexPath
+                ) as! MangaWaterfallCell
                 self?.configure(cell: cell, info: item, indexPath: indexPath)
                 return cell
             } else {
@@ -461,5 +506,18 @@ extension OldMangaCollectionViewController: MangaWaterfallLayoutDelegate {
     ) -> CGFloat {
         let coverUrl = dataSource.itemIdentifier(for: indexPath)?.coverUrl?.absoluteString
         return CoverAspectCache.shared.aspectRatio(for: coverUrl) ?? (2.0 / 3.0)
+    }
+
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        textHeightForItemAt indexPath: IndexPath,
+        width: CGFloat
+    ) -> CGFloat {
+        guard let info = dataSource.itemIdentifier(for: indexPath) else { return 0 }
+        return WaterfallItemMetrics.textHeight(
+            title: info.title ?? "",
+            tags: info.tags ?? [],
+            width: width
+        )
     }
 }
