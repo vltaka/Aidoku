@@ -238,6 +238,7 @@ extension MangaGridCell {
 extension MangaGridCell {
     func loadImage(url: URL?) async {
         guard let url else { return }
+        let coverUrlString = url.absoluteString
 
         if let imageTask, imageTask.state == .running {
             return
@@ -284,6 +285,7 @@ extension MangaGridCell {
                     if response.request.imageID != self.url {
                         return
                     }
+                    CoverAspectCache.shared.record(url: coverUrlString, size: response.image.size)
                     Task { @MainActor in
                         if cached {
                             self.imageView.image = response.image
