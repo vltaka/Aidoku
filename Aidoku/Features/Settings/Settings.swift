@@ -205,6 +205,16 @@ extension Settings {
                     value: .custom
                 )
             ]))
+        ),
+        .init(
+            title: NSLocalizedString("发现页封面"),
+            value: .group(.init(items: [
+                .init(
+                    key: AppSettings.appearance.listCoverHeight.key,
+                    title: NSLocalizedString("发现页封面"),
+                    value: .custom
+                )
+            ]))
         )
     ]
 
