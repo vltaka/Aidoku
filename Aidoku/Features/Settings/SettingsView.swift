@@ -585,6 +585,10 @@ private struct LayoutSettingView: View {
         }
         .onChange(of: selection) { newValue in
             AppSettings.appearance.layout.set(newValue)
+            // notify already-open pages so they swap layouts immediately
+            // (SettingsKey.set only writes the value; the cover size
+            // sliders post the same notification for their keys)
+            NotificationCenter.default.post(name: .init(AppSettings.appearance.layout.key), object: nil)
         }
     }
 
