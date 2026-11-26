@@ -723,6 +723,7 @@
 "STANDARD" = "标准";
 "COMPACT" = "紧凑";
 "CUSTOM" = "自定义";
+"WATERFALL" = "瀑布流";
 "PORTRAIT_ROWS" = "竖屏行数";
 "LANDSCAPE_ROWS" = "横屏行数";
 "DISABLE_DOUBLE_TAP_ZOOM" = "禁用双击缩放";
