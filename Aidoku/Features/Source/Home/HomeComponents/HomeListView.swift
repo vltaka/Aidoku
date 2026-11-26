@@ -28,6 +28,7 @@ struct HomeListView: View {
     @State private var bookmarkedItemsState: Set<String> = .init()
     @State private var loadedBookmarks: Bool
     @State private var coverHeight: CGFloat = 100
+    @State private var coverFit: Bool = false
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -62,6 +63,7 @@ struct HomeListView: View {
         self.entries = entries
         self.listing = listing
         self._coverHeight = State(initialValue: CGFloat(AppSettings.appearance.listCoverHeight.get()))
+        self._coverFit = State(initialValue: AppSettings.appearance.listCoverFit.get())
     }
 
     var body: some View {
@@ -138,6 +140,9 @@ struct HomeListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.listCoverHeight.key))) { _ in
             coverHeight = CGFloat(AppSettings.appearance.listCoverHeight.get())
         }
+        .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.listCoverFit.key))) { _ in
+            coverFit = AppSettings.appearance.listCoverFit.get()
+        }
     }
 
     @ContentBuilder
@@ -168,6 +173,7 @@ struct HomeListView: View {
                 width: coverHeight * 2/3,
                 height: coverHeight,
                 downsampleWidth: 200,
+                contentMode: coverFit ? .fit : .fill,
                 bookmarked: mangaKey.flatMap { (usesBookmarksState ? bookmarkedItemsState : bookmarkedItems).contains($0) } ?? false
             )
 
