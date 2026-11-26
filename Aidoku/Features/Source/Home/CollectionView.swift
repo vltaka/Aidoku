@@ -70,9 +70,9 @@ typealias GetSection = (NSCollectionLayoutEnvironment) -> NSCollectionLayoutSect
 extension CollectionView {
     static func mangaListLayout(
         itemsPerPage: Int,
-        totalItems: Int
+        totalItems: Int,
+        itemHeight: CGFloat = 100
     ) -> (GetSection, CGFloat) {
-        let itemHeight: CGFloat = 100
         let spacing: CGFloat = 10
 
         let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
