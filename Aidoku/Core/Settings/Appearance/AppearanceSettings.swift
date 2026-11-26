@@ -16,7 +16,8 @@ struct AppearanceSettings: Sendable {
             customPortraitRows,
             customLandscapeRows,
             listCoverHeight,
-            scrollerCoverHeight
+            scrollerCoverHeight,
+            listCoverFit
         ]
     }
 
@@ -29,4 +30,6 @@ struct AppearanceSettings: Sendable {
 
     let listCoverHeight = SettingsKey<Double>("Appearance.listCoverHeight", default: 100)
     let scrollerCoverHeight = SettingsKey<Double>("Appearance.scrollerCoverHeight", default: 180)
+    // when true, home ranking list covers are shown in full (aspect fit) instead of cropped (aspect fill)
+    let listCoverFit = SettingsKey<Bool>("Appearance.listCoverFit", default: false)
 }
