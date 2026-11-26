@@ -19,8 +19,7 @@ struct HomeScrollerView: View {
     private let listing: AidokuRunner.Listing?
     private let hasSubtitles: Bool
 
-    static let coverHeight: CGFloat = 180
-
+    @State private var coverHeight: CGFloat = 180
     @State private var bookmarkedItems: Set<String> = .init()
     @State private var loadedBookmarks = false
 
@@ -43,6 +42,7 @@ struct HomeScrollerView: View {
         self.entries = entries
         self.listing = listing
         self.hasSubtitles = entries.contains(where: { $0.subtitle != nil })
+        self._coverHeight = State(initialValue: CGFloat(AppSettings.appearance.scrollerCoverHeight.get()))
     }
 
     var body: some View {
@@ -76,8 +76,8 @@ struct HomeScrollerView: View {
                                 MangaCoverView(
                                     source: source,
                                     coverImage: entry.imageUrl ?? "",
-                                    width: Self.coverHeight * 2/3,
-                                    height: Self.coverHeight,
+                                    width: coverHeight * 2/3,
+                                    height: coverHeight,
                                     downsampleWidth: 200,
                                     bookmarked: mangaKey.flatMap { bookmarkedItems.contains($0) } ?? false
                                 )
@@ -117,7 +117,7 @@ struct HomeScrollerView: View {
                                 .padding(.horizontal, 4)
                                 .fixedSize(horizontal: false, vertical: true)
                             }
-                            .frame(width: Self.coverHeight * 2/3)
+                            .frame(width: coverHeight * 2/3)
 
                             if let value = entry.value {
                                 let tapAction = {
@@ -206,6 +206,9 @@ struct HomeScrollerView: View {
             guard let id = notification.object as? MangaIdentifier, id.sourceKey == source.key else { return }
             bookmarkedItems.remove(id.mangaKey)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.scrollerCoverHeight.key))) { _ in
+            coverHeight = CGFloat(AppSettings.appearance.scrollerCoverHeight.get())
+        }
     }
 
     func loadBookmarked() async {
@@ -234,7 +237,7 @@ struct HomeScrollerView: View {
     private func shouldAddEmptyLine(for title: String) -> Bool {
         // Calculate if title fits in one line based on current font size
         let font = UIFont.preferredFont(forTextStyle: .body)
-        let maxWidth = Self.coverHeight * 2/3 - 8 // subtract padding
+        let maxWidth = coverHeight * 2/3 - 8 // subtract padding
         let titleWidth = title.size(withAttributes: [.font: font]).width
         return titleWidth <= maxWidth && !title.contains("\n")
     }
@@ -259,12 +262,13 @@ struct PlaceholderMangaScroller: View {
     }
 
     static var mainView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let coverHeight = CGFloat(AppSettings.appearance.scrollerCoverHeight.get())
+        return ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .top, spacing: 16) {
                 ForEach(0..<20) { _ in
                     VStack(alignment: .leading) {
                         MangaGridItem.placeholder
-                            .frame(height: 180)
+                            .frame(height: coverHeight)
 
                         let text = Text("Loading\n")
                             .padding(.horizontal, 4)
@@ -277,7 +281,7 @@ struct PlaceholderMangaScroller: View {
                             text.lineLimit(2)
                         }
                     }
-                    .frame(width: 180 * 2/3)
+                    .frame(width: coverHeight * 2/3)
                 }
             }
             .padding(.horizontal)
