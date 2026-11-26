@@ -335,6 +335,8 @@ extension SettingsView {
     func customContentHandler(_ setting: Setting) -> some View {
         if setting.key == AppSettings.appearance.layout.key {
             LayoutSettingView()
+        } else if setting.key == AppSettings.appearance.listCoverHeight.key {
+            CoverSizeSettingView()
         } else if setting.key == AppSettings.library.defaultCategory.key {
             CategorySelectSettingView(setting: setting, categories: $categoriesOnly)
         } else if setting.key == AppSettings.library.lockedCategories.key {
@@ -589,6 +591,48 @@ private struct LayoutSettingView: View {
     private struct NoButtonStyle: ButtonStyle {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
+        }
+    }
+}
+
+private struct CoverSizeSettingView: View {
+    @State private var listCoverHeight: Double
+    @State private var scrollerCoverHeight: Double
+
+    init() {
+        self._listCoverHeight = State(initialValue: AppSettings.appearance.listCoverHeight.get())
+        self._scrollerCoverHeight = State(initialValue: AppSettings.appearance.scrollerCoverHeight.get())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("排行榜封面")
+                    Spacer()
+                    Text("\(Int(listCoverHeight))")
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $listCoverHeight, in: 80...200, step: 5)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("横滑封面")
+                    Spacer()
+                    Text("\(Int(scrollerCoverHeight))")
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $scrollerCoverHeight, in: 120...300, step: 5)
+            }
+        }
+        .onChange(of: listCoverHeight) { newValue in
+            AppSettings.appearance.listCoverHeight.set(newValue)
+            NotificationCenter.default.post(name: .init(AppSettings.appearance.listCoverHeight.key), object: newValue)
+        }
+        .onChange(of: scrollerCoverHeight) { newValue in
+            AppSettings.appearance.scrollerCoverHeight.set(newValue)
+            NotificationCenter.default.post(name: .init(AppSettings.appearance.scrollerCoverHeight.key), object: newValue)
         }
     }
 }
