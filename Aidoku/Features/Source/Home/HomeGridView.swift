@@ -19,6 +19,8 @@ struct HomeGridView: View {
     @State private var loadingMore = false
     @State private var columns: [GridItem]
     @State private var itemsPerRow: Int = 1
+    @State private var isWaterfall = false
+    @State private var aspectCacheVersion = 0
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -56,16 +58,22 @@ struct HomeGridView: View {
     }
 
     var body: some View {
-        LazyVGrid(
-            columns: columns,
-            spacing: Self.spacing
-        ) {
-            ForEach(entries.indices, id: \.self) { index in
-                mangaGridItem(entry: entries[index])
+        Group {
+            if isWaterfall {
+                waterfallBody
+            } else {
+                LazyVGrid(
+                    columns: columns,
+                    spacing: Self.spacing
+                ) {
+                    ForEach(entries.indices, id: \.self) { index in
+                        mangaGridItem(entry: entries[index])
+                    }
+                    loadMoreView
+                }
+                .padding([.horizontal, .bottom])
             }
-            loadMoreView
         }
-        .padding([.horizontal, .bottom])
         .onAppear {
             updateItemsPerRow()
         }
@@ -91,8 +99,98 @@ struct HomeGridView: View {
         .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.customLandscapeRows.key))) { _ in
             updateItemsPerRow()
         }
+        .onReceive(NotificationCenter.default.publisher(for: CoverAspectCache.didUpdateNotification)) { _ in
+            aspectCacheVersion += 1
+        }
         .onChange(of: itemsPerRow) { newValue in
             columns = Self.getColumns(itemsPerRow: newValue)
+        }
+    }
+
+    private var waterfallBody: some View {
+        let _ = aspectCacheVersion
+        let columnCount = max(1, itemsPerRow)
+        let horizontalPadding: CGFloat = 16
+        let itemWidth = max(
+            0,
+            (containerWidth - horizontalPadding * 2 - CGFloat(columnCount - 1) * Self.spacing) / CGFloat(columnCount)
+        )
+        let distribution = WaterfallDistributor.distribute(count: entries.count, columns: columnCount) { index in
+            let ratio = CoverAspectCache.shared.aspectRatio(for: entries[index].cover) ?? (2.0 / 3.0)
+            return itemWidth / ratio
+        }
+        return VStack(spacing: Self.spacing) {
+            HStack(alignment: .top, spacing: Self.spacing) {
+                ForEach(distribution.indices, id: \.self) { column in
+                    LazyVStack(spacing: Self.spacing) {
+                        ForEach(distribution[column], id: \.self) { index in
+                            mangaWaterfallItem(entry: entries[index])
+                        }
+                    }
+                    .frame(width: itemWidth)
+                }
+            }
+            loadMoreView
+        }
+        .padding([.horizontal, .bottom])
+    }
+
+    private func mangaWaterfallItem(entry: AidokuRunner.Manga) -> some View {
+        let inLibrary = bookmarkedItems.contains(entry.key)
+        return Button {
+            if let onSelect {
+                onSelect(entry)
+            } else {
+                path.push(MangaViewController(source: source, manga: entry, parent: path.rootViewController))
+            }
+        } label: {
+            MangaWaterfallGridItem(
+                source: source,
+                title: entry.title,
+                coverImage: entry.cover ?? "",
+                bookmarked: inLibrary,
+                aspectRatio: CoverAspectCache.shared.aspectRatio(for: entry.cover) ?? (2.0 / 3.0)
+            )
+        }
+        .buttonStyle(MangaGridButtonStyle())
+        .contextMenu {
+            if entry.isLocal() {
+                Button(role: .destructive) {
+                    Task {
+                        await LocalFileManager.shared.removeManga(with: entry.key)
+                        NotificationCenter.default.post(name: .init("refresh-content"), object: nil)
+                    }
+                } label: {
+                    Label(NSLocalizedString("REMOVE"), systemImage: "trash")
+                }
+            }
+            if inLibrary {
+                Button(role: .destructive) {
+                    bookmarkedItems.remove(entry.key)
+                    Task {
+                        await MangaManager.shared.removeFromLibrary(mangaId: entry.identifier)
+                    }
+                } label: {
+                    Label(NSLocalizedString("REMOVE_FROM_LIBRARY"), systemImage: "trash")
+                }
+            } else {
+                Button {
+                    Task {
+                        if await MangaManager.shouldAskForCategories() {
+                            let viewController = UINavigationController(rootViewController: CategorySelectViewController(manga: entry))
+                            path.present(viewController)
+                        } else {
+                            bookmarkedItems.insert(entry.key)
+                            await MangaManager.shared.addToLibrary(
+                                manga: entry,
+                                fetchMangaDetails: true
+                            )
+                        }
+                    }
+                } label: {
+                    Label(NSLocalizedString("ADD_TO_LIBRARY"), systemImage: "plus.circle")
+                }
+            }
         }
     }
 
@@ -173,10 +271,12 @@ struct HomeGridView: View {
     }
 
     func updateItemsPerRow(width: CGFloat? = nil) {
+        let layout = AppSettings.appearance.layout.get()
+        isWaterfall = layout == .waterfall
         itemsPerRow = OldMangaCollectionViewController.getGridItemsPerRow(
             containerWidth: width ?? containerWidth,
             isLandscape: Self.isLandscape,
-            layout: AppSettings.appearance.layout.get()
+            layout: layout
         )
     }
 
