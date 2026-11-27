@@ -21,6 +21,10 @@ struct SourceImageView: View {
     var placeholder = "MangaPlaceholder"
 
     @State private var imageRequest: ImageRequest?
+    // the url the current imageRequest was built for; the image on
+    // screen may only be recorded under the current url while the two
+    // agree — see the write in the lazy image's content below
+    @State private var imageRequestUrl: String?
     // the last image this view actually displayed, kept in the view's own
     // state so a re-render (e.g. the multitasking snapshot pass) can draw
     // it synchronously instead of falling back to the placeholder. The pin
@@ -100,7 +104,22 @@ struct SourceImageView: View {
                     .frame(width: width, height: height)
                     .id(state.image != nil ? imageUrl : "placeholder") // ensures only opacity is animated
                     .onAppear {
-                        if let container = state.imageContainer {
+                        // record the displayed image under the current
+                        // url only if it really came from a request for
+                        // that url. When this view is reused for another
+                        // manga (home lists identify rows by position),
+                        // there is a pass where the url is already the
+                        // new manga's while the request — and the image
+                        // still on screen — is the previous manga's;
+                        // recording then would file the previous cover
+                        // under the new url in the pin and both shared
+                        // caches, and since those are checked before any
+                        // real load, the wrong cover would never correct
+                        // itself. A request taken from the shared
+                        // request cache is keyed by this url, so it
+                        // counts as belonging to it (imageRequest nil).
+                        if let container = state.imageContainer,
+                           imageRequest == nil || imageRequestUrl == imageUrl {
                             pinnedImage = container.image
                             pinnedImageUrl = imageUrl
                             CoverImageMemoryCache.shared.store(
@@ -122,6 +141,7 @@ struct SourceImageView: View {
         }
         .onChange(of: imageUrl) { newValue in
             imageRequest = nil
+            imageRequestUrl = nil
             pinnedImage = nil
             pinnedImageUrl = nil
             Task {
@@ -135,11 +155,13 @@ struct SourceImageView: View {
         if let fileUrl = urlObject?.toAidokuFileUrl() {
             let request = ImageRequest(url: fileUrl)
             imageRequest = request
+            imageRequestUrl = url
             CoverRequestCache.shared.store(request, sourceKey: source?.key, url: url)
             return
         }
         guard let source, let urlObject, !urlObject.isFileURL else {
             imageRequest = ImageRequest(url: urlObject)
+            imageRequestUrl = url
             return
         }
         let request = ImageRequest(
@@ -153,6 +175,7 @@ struct SourceImageView: View {
         // (covers landing in the wrong places after views rebuild)
         guard imageUrl == url else { return }
         imageRequest = request
+        imageRequestUrl = url
     }
 }
 
