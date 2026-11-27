@@ -20,7 +20,7 @@ struct HomeGridView: View {
     @State private var columns: [GridItem]
     @State private var itemsPerRow: Int = 1
     @State private var isWaterfall = false
-    @State private var distributionCache = WaterfallDistributionCache()
+    private let distributionCache = WaterfallDistributionCache.shared
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -112,9 +112,15 @@ struct HomeGridView: View {
             (containerWidth - horizontalPadding * 2 - CGFloat(columnCount - 1) * Self.spacing) / CGFloat(columnCount)
         )
         // freeze the distribution (and the ratios it assumed) for a given
-        // set of entries, so covers never change places once shown
-        let signature = "\(entries.count)|\(entries.first?.key ?? "")|\(entries.last?.key ?? "")|\(columnCount)"
-        let distribution = distributionCache.distribution(key: "home", signature: signature) {
+        // set of entries, so covers never change places once shown. the
+        // signature covers every entry key plus the exact item width, and
+        // the cache is shared, so a transient state (a refresh passing
+        // through, the view being rebuilt) can never reshuffle items
+        // that are already on screen
+        var signatureHasher = Hasher()
+        for entry in entries { signatureHasher.combine(entry.key) }
+        let signature = "\(entries.count)|\(columnCount)|\(Int(itemWidth.rounded()))|\(signatureHasher.finalize())"
+        let distribution = distributionCache.distribution(key: "home-\(source.key)", signature: signature) {
             var ratios: [String: CGFloat] = [:]
             let result = WaterfallDistributor.distribute(count: entries.count, columns: columnCount) { index in
                 let entry = entries[index]
@@ -126,10 +132,10 @@ struct HomeGridView: View {
                     width: itemWidth
                 )
             }
-            distributionCache.setValues(ratios, for: "home")
+            distributionCache.setValues(ratios, for: "home-\(source.key)")
             return result
         }
-        let frozenRatios = distributionCache.values(for: "home") ?? [:]
+        let frozenRatios = distributionCache.values(for: "home-\(source.key)") ?? [:]
         return VStack(spacing: Self.spacing) {
             HStack(alignment: .top, spacing: Self.spacing) {
                 ForEach(distribution.indices, id: \.self) { column in
