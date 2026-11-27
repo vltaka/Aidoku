@@ -59,6 +59,11 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
     var sectionInset: UIEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
     var headerHeight: CGFloat = 0
 
+    /// Column counts supplied by the owning controller. Nil follows the
+    /// global custom rows; the library sets its own counts so its
+    /// waterfall sizes independently of the global setting.
+    var rowsOverride: (portrait: Int, landscape: Int)?
+
     private var cellAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var headerAttributes: UICollectionViewLayoutAttributes?
     private var contentHeight: CGFloat = 0
@@ -79,11 +84,15 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
 
         let width = collectionView.bounds.width
         let isLandscape = width > collectionView.bounds.height
-        let columns = max(1, OldMangaCollectionViewController.getGridItemsPerRow(
-            containerWidth: width,
-            isLandscape: isLandscape,
-            layout: .custom
-        ))
+        let columns = max(1, if let rowsOverride {
+            isLandscape ? rowsOverride.landscape : rowsOverride.portrait
+        } else {
+            OldMangaCollectionViewController.getGridItemsPerRow(
+                containerWidth: width,
+                isLandscape: isLandscape,
+                layout: .custom
+            )
+        })
         let contentWidth = width - sectionInset.left - sectionInset.right
         let columnWidth = (contentWidth - CGFloat(columns - 1) * itemSpacing) / CGFloat(columns)
 

@@ -111,6 +111,7 @@ class MangaWaterfallCell: UICollectionViewCell {
     private lazy var badgeView = DoubleBadgeView()
     private let bookmarkView = UIImageView()
     private let languageBadge = PaddedLabel()
+    private let sourceBadge = PaddedLabel()
     private let highlightView = UIView()
 
     private lazy var shadowOverlayView: UIView = {
@@ -168,6 +169,15 @@ class MangaWaterfallCell: UICollectionViewCell {
         languageBadge.insets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
         coverContainer.addSubview(languageBadge)
 
+        sourceBadge.isHidden = true
+        sourceBadge.font = .systemFont(ofSize: 10, weight: .bold)
+        sourceBadge.textColor = .white
+        sourceBadge.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        sourceBadge.layer.cornerRadius = 4
+        sourceBadge.layer.masksToBounds = true
+        sourceBadge.insets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+        coverContainer.addSubview(sourceBadge)
+
         titleLabel.font = WaterfallItemMetrics.titleFont
         titleLabel.textColor = .label
         titleLabel.numberOfLines = WaterfallItemMetrics.titleMaxLines
@@ -190,7 +200,8 @@ class MangaWaterfallCell: UICollectionViewCell {
         tags: [String],
         language: String?,
         aspectRatio: CGFloat,
-        bookmarked: Bool
+        bookmarked: Bool,
+        sourceName: String? = nil
     ) {
         self.title = title
         self.tags = tags
@@ -204,6 +215,12 @@ class MangaWaterfallCell: UICollectionViewCell {
         } else {
             languageBadge.isHidden = true
         }
+        if let sourceName, !sourceName.isEmpty {
+            sourceBadge.text = sourceName
+            sourceBadge.isHidden = false
+        } else {
+            sourceBadge.isHidden = true
+        }
         showsBookmark = bookmarked
         setNeedsLayout()
     }
@@ -214,15 +231,31 @@ class MangaWaterfallCell: UICollectionViewCell {
         let coverHeight = width / min(max(aspectRatio, 0.2), 5)
         coverContainer.frame = CGRect(x: 0, y: 0, width: width, height: coverHeight)
         imageView.frame = coverContainer.bounds
-        let badgeSize = badgeView.intrinsicContentSize
-        badgeView.frame = CGRect(x: 5, y: 5, width: badgeSize.width, height: 20)
-        bookmarkView.frame = CGRect(x: width - 8 - 17, y: 0, width: 17, height: 27)
         languageBadge.sizeToFit()
+        let languageBadgeHeight = WaterfallItemMetrics.tagChipHeight - 2
         languageBadge.frame = CGRect(
             x: 5,
             y: 5,
             width: languageBadge.bounds.width,
-            height: WaterfallItemMetrics.tagChipHeight - 2
+            height: languageBadgeHeight
+        )
+        // the count badges stack under the language badge when it is
+        // shown, and sit in the corner by themselves when it isn't
+        let badgeSize = badgeView.intrinsicContentSize
+        badgeView.frame = CGRect(
+            x: 5,
+            y: languageBadge.isHidden ? 5 : 5 + languageBadgeHeight + 4,
+            width: badgeSize.width,
+            height: 20
+        )
+        bookmarkView.frame = CGRect(x: width - 8 - 17, y: 0, width: 17, height: 27)
+        sourceBadge.sizeToFit()
+        let sourceBadgeWidth = sourceBadge.bounds.width
+        sourceBadge.frame = CGRect(
+            x: width - sourceBadgeWidth - 5 - (bookmarkView.isHidden ? 0 : 25),
+            y: 5,
+            width: sourceBadgeWidth,
+            height: languageBadgeHeight
         )
 
         var y = coverHeight
@@ -272,6 +305,8 @@ class MangaWaterfallCell: UICollectionViewCell {
         titleLabel.text = nil
         chipsView.tags = []
         languageBadge.isHidden = true
+        sourceBadge.isHidden = true
+        sourceBadge.text = nil
         badgeView.badgeNumber = 0
         badgeView.badgeNumber2 = 0
     }
