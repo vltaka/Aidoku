@@ -484,4 +484,13 @@ extension MangaCollectionViewController: MangaWaterfallLayoutDelegate {
             width: width
         )
     }
+
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        itemIdentifierAt indexPath: IndexPath
+    ) -> AnyHashable? {
+        dataSource.itemIdentifier(for: indexPath).map {
+            AnyHashable("\($0.sourceKey)|\($0.key)|\($0.cover ?? "")")
+        }
+    }
 }
