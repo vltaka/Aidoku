@@ -56,9 +56,19 @@ struct SourceImageView: View {
         }
     }
 
+    /// The request for this cover: the one built for this view, or the
+    /// shared one an earlier view already built for the same cover, so a
+    /// recreated view can ask the image cache for its cover immediately
+    /// instead of waiting for the async request-building hop first (that
+    /// hop is what made already-loaded covers flash the placeholder when
+    /// scrolling back).
+    private var effectiveRequest: ImageRequest? {
+        imageRequest ?? CoverRequestCache.shared.request(sourceKey: source?.key, url: imageUrl)
+    }
+
     private var lazyImage: some View {
         LazyImage(
-            request: imageRequest,
+            request: effectiveRequest,
             transaction: .init(animation: .default)
         ) { state in
             if state.imageContainer?.type == .gif, let data = state.imageContainer?.data {
@@ -94,7 +104,7 @@ struct SourceImageView: View {
         }
         .processors(processors)
         .onAppear {
-            guard imageRequest == nil else { return }
+            guard imageRequest == nil, effectiveRequest == nil else { return }
             Task {
                 await loadImageRequest(url: imageUrl)
             }
@@ -109,18 +119,55 @@ struct SourceImageView: View {
     }
 
     func loadImageRequest(url: String) async {
-        let url = URL(string: url)
-        if let fileUrl = url?.toAidokuFileUrl() {
-            imageRequest = ImageRequest(url: fileUrl)
+        let urlObject = URL(string: url)
+        if let fileUrl = urlObject?.toAidokuFileUrl() {
+            let request = ImageRequest(url: fileUrl)
+            imageRequest = request
+            CoverRequestCache.shared.store(request, sourceKey: source?.key, url: url)
             return
         }
-        guard let source, let url, !url.isFileURL else {
-            imageRequest = ImageRequest(url: url)
+        guard let source, let urlObject, !urlObject.isFileURL else {
+            imageRequest = ImageRequest(url: urlObject)
             return
         }
-        imageRequest = ImageRequest(
-            urlRequest: await source.getModifiedImageRequest(url: url, context: nil),
+        let request = ImageRequest(
+            urlRequest: await source.getModifiedImageRequest(url: urlObject, context: nil),
             userInfo: [.processesKey: source.features.processesCovers]
         )
+        imageRequest = request
+        CoverRequestCache.shared.store(request, sourceKey: source.key, url: url)
+    }
+}
+
+/// Image requests already built for covers, shared across views.
+/// Building a request can require an async round-trip through the
+/// source, so a cover view recreated while scrolling shouldn't have to
+/// wait for that before it can even ask the image cache for its cover.
+/// Entries expire after ten minutes so a source handing out signed,
+/// short-lived cover URLs still gets fresh requests regularly.
+final class CoverRequestCache {
+    static let shared = CoverRequestCache()
+
+    private let lock = NSLock()
+    private var requests: [String: (request: ImageRequest, storedAt: Date)] = [:]
+    private let lifetime: TimeInterval = 600
+
+    private func key(sourceKey: String?, url: String) -> String {
+        "\(sourceKey ?? "")|\(url)"
+    }
+
+    func request(sourceKey: String?, url: String) -> ImageRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = requests[key(sourceKey: sourceKey, url: url)] else { return nil }
+        guard Date().timeIntervalSince(entry.storedAt) < lifetime else { return nil }
+        return entry.request
+    }
+
+    func store(_ request: ImageRequest, sourceKey: String?, url: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if requests.count > 1000 { requests.removeAll() }
+        requests[key(sourceKey: sourceKey, url: url)] = (request, Date())
     }
 }
