@@ -9,7 +9,9 @@ struct ReaderSettings: Sendable {
     var keys: [any SettingsDefault] {
         [
             autoScrollPosition,
-            upscaleQuality
+            upscaleQuality,
+            menuTapArea,
+            autoScrollPauseOnBars
         ]
     }
 
@@ -17,4 +19,6 @@ struct ReaderSettings: Sendable {
 
     let autoScrollPosition = SettingsKey<AutoScrollPosition>("Reader.autoScrollPosition", default: .right)
     let upscaleQuality = SettingsKey<UpscaleQuality>("Reader.upscaleQuality", default: .fast)
+    let menuTapArea = SettingsKey<MenuTapArea>("Reader.menuTapArea", default: .half)
+    let autoScrollPauseOnBars = SettingsKey<Bool>("Reader.autoScrollPauseOnBars", default: true)
 }
