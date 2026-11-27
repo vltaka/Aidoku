@@ -63,7 +63,29 @@ struct CollectionView: UIViewControllerRepresentable {
             self.appliedLayoutToken = parent.layoutToken
         }
 
+        private var pendingApplyViewController: UICollectionViewController?
+        private var observingActivation = false
+
         func apply(to viewController: UICollectionViewController) {
+            // Reloading while the app is inactive (app switcher, being
+            // backgrounded) runs the layout against the switcher's
+            // transient geometry and can bake wrong sizes and shuffled
+            // cells into the snapshot the user comes back to. Nothing is
+            // visible then anyway; hold the reload until the app is
+            // active again and apply the latest data then.
+            guard UIApplication.shared.applicationState == .active else {
+                pendingApplyViewController = viewController
+                if !observingActivation {
+                    observingActivation = true
+                    NotificationCenter.default.addObserver(
+                        self,
+                        selector: #selector(applicationDidBecomeActive),
+                        name: UIApplication.didBecomeActiveNotification,
+                        object: nil
+                    )
+                }
+                return
+            }
             let collectionView = viewController.collectionView
             // swap the layout in place when its parameters changed (e.g. the
             // cover height) instead of recreating the whole view, keeping
@@ -79,6 +101,12 @@ struct CollectionView: UIViewControllerRepresentable {
                 collectionView.contentOffset = offset
             }
             collectionView?.reloadData()
+        }
+
+        @objc private func applicationDidBecomeActive() {
+            guard let viewController = pendingApplyViewController else { return }
+            pendingApplyViewController = nil
+            apply(to: viewController)
         }
 
         func numberOfSections(in collectionView: UICollectionView) -> Int {
