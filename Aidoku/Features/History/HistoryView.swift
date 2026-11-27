@@ -25,7 +25,7 @@ struct HistoryView: View {
 
     // 0 = list, 1 = grid, 2 = waterfall
     @AppStorage("History.displayMode") private var displayMode = 0
-    @State private var distributionCache = WaterfallDistributionCache()
+    private let distributionCache = WaterfallDistributionCache.shared
 
     @State private var listSelection: String? // fix for list highlighting being buggy
 
@@ -305,7 +305,11 @@ struct HistoryView: View {
                                     // assumed) per section, so covers never
                                     // change places once shown
                                     let cacheKey = "history-\(section.daysAgo)"
-                                    let signature = "\(section.entries.count)|\(columnCount)"
+                                    var signatureHasher = Hasher()
+                                    for entry in section.entries {
+                                        signatureHasher.combine(entry.chapterId.mangaIdentifier.mangaKey)
+                                    }
+                                    let signature = "\(section.entries.count)|\(columnCount)|\(Int(itemWidth.rounded()))|\(signatureHasher.finalize())"
                                     let distribution = distributionCache.distribution(key: cacheKey, signature: signature) {
                                         var ratios: [String: CGFloat] = [:]
                                         let result = WaterfallDistributor.distribute(
