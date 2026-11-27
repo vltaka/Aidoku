@@ -40,6 +40,11 @@ struct SourceHomeContentView: View {
 
     @State private var listingLoadState: ListingLoadState = .loading
 
+    // set while a listing switch is in flight; switching listings is
+    // supposed to land at the top, so the scroll-anchor restore must
+    // sit that one load out
+    @State private var suppressAnchorRestore = false
+
     @StateObject private var path: NavigationCoordinator
 
     private var currentListing: AidokuRunner.Listing? {
@@ -93,10 +98,19 @@ struct SourceHomeContentView: View {
                     }
                     await task.value
                 }
+                .onPreferenceChange(HomeItemFramesPreferenceKey.self) { frames in
+                    updateScrollAnchor(from: frames)
+                }
+                .onChange(of: loading) { isLoading in
+                    if !isLoading {
+                        restoreScrollAnchor(using: reader)
+                    }
+                }
                 // update listingSelection when header selection changes;
                 // a separate variable is used in order to perform the rest of the changes along with listingSelection
                 // immediately rather than having a slight delay
                 .onChange(of: headerListingSelection) { value in
+                    suppressAnchorRestore = true
                     loadListingTask?.cancel()
                     loadListingTask = Task {
                         withAnimation {
@@ -138,6 +152,7 @@ struct SourceHomeContentView: View {
                     }
                 }
             }
+            .coordinateSpace(name: "aidokuHomeScroll")
             .onChange(of: listings) { value in
                 // reset listing selection to the first if the selected one disappears
                 let maxListings = value.count - (source.features.providesHome ? 0 : 1)
@@ -266,6 +281,41 @@ struct SourceHomeContentView: View {
             .transition(.opacity)
         }
         .padding(.bottom)
+    }
+    /// Remember the entry currently sitting at the top of the scroll
+    /// view, from the item frames the grid reports.
+    private func updateScrollAnchor(from frames: [String: CGRect]) {
+        let visible = frames.filter { $0.value.maxY > 0 }
+        guard let top = visible.min(by: { lhs, rhs in
+            if lhs.value.minY != rhs.value.minY { return lhs.value.minY < rhs.value.minY }
+            return lhs.key < rhs.key
+        }) else { return }
+        HomeScrollAnchorStore.shared.setAnchor(
+            sourceKey: source.key,
+            listing: listingSelection,
+            topKey: top.key
+        )
+    }
+
+    /// After content (re)loads, put the scroll position back where the
+    /// user left it. The store always holds the last topmost entry, so
+    /// when nothing was rebuilt this scrolls to where the user already
+    /// is; when the tree was rebuilt in the background it restores the
+    /// position that would otherwise be lost to the top.
+    private func restoreScrollAnchor(using reader: ScrollViewProxy) {
+        if suppressAnchorRestore {
+            suppressAnchorRestore = false
+            return
+        }
+        guard listingSelection != 0 || !source.features.providesHome else { return }
+        guard
+            let anchorKey = HomeScrollAnchorStore.shared.anchor(
+                sourceKey: source.key,
+                listing: listingSelection
+            ),
+            entries.contains(where: { $0.key == anchorKey })
+        else { return }
+        reader.scrollTo(anchorKey, anchor: .top)
     }
 }
 
@@ -473,5 +523,34 @@ extension SourceHomeContentView {
                 self.error = error
             }
         }
+    }
+}
+
+/// The last topmost visible entry of each listing, remembered outside
+/// the view tree. The home view tree is recreated when the app comes
+/// back from the background (and its scroll view with it), which used
+/// to drop the reading position back to the top; the grid reports the
+/// top entry while scrolling, and the position is restored from here
+/// once content finishes loading.
+final class HomeScrollAnchorStore {
+    static let shared = HomeScrollAnchorStore()
+
+    private let lock = NSLock()
+    private var anchors: [String: String] = [:]
+
+    private func key(sourceKey: String, listing: Int) -> String {
+        "\(sourceKey)|\(listing)"
+    }
+
+    func setAnchor(sourceKey: String, listing: Int, topKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        anchors[key(sourceKey: sourceKey, listing: listing)] = topKey
+    }
+
+    func anchor(sourceKey: String, listing: Int) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return anchors[key(sourceKey: sourceKey, listing: listing)]
     }
 }
