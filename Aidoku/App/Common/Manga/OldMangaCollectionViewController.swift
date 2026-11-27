@@ -17,12 +17,27 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
 
     private var focusedIndexPath: IndexPath? {
         didSet {
-            if let oldValue {
-                collectionView(collectionView, didUnhighlightItemAt: oldValue)
+            if let oldValue, let cell = collectionView.cellForItem(at: oldValue) {
+                setCellHighlight(cell, on: false)
             }
-            if let focusedIndexPath {
-                collectionView(collectionView, didHighlightItemAt: focusedIndexPath)
+            if let focusedIndexPath, let cell = collectionView.cellForItem(at: focusedIndexPath) {
+                setCellHighlight(cell, on: true)
             }
+        }
+    }
+
+    /// The dark overlay is only the keyboard-focus indicator (and the
+    /// flash that shows where you were when coming back from a detail
+    /// page). It is deliberately not driven by touch highlighting any
+    /// more: a long press used to sit under the black overlay for the
+    /// whole press before the context menu even appeared.
+    private func setCellHighlight(_ cell: UICollectionViewCell, on: Bool) {
+        if let cell = cell as? MangaGridCell {
+            if on { cell.highlight() } else { cell.unhighlight() }
+        } else if let cell = cell as? MangaListCell {
+            if on { cell.highlight() } else { cell.unhighlight() }
+        } else if let cell = cell as? MangaWaterfallCell {
+            if on { cell.highlight() } else { cell.unhighlight() }
         }
     }
 
@@ -32,6 +47,17 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
     var usesWaterfallLayout: Bool {
         !usesListLayout && AppSettings.appearance.layout.get() == .waterfall
     }
+
+    /// Whether waterfall cells should carry a source name badge in their
+    /// top-right corner. Only the library mixes sources on one page in a
+    /// way that needs it, so only it turns this on.
+    var waterfallCellsShowSourceBadge: Bool { false }
+
+    /// Column counts for this controller's grid and waterfall layouts.
+    /// Nil follows the global appearance settings; the library overrides
+    /// this with its own stored counts so its pages size independently
+    /// of the global rows.
+    var gridRowsOverride: (portrait: Int, landscape: Int)? { nil }
 
     override func configure() {
         super.configure()
@@ -119,12 +145,14 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
 
     func configure(cell: MangaWaterfallCell, info: MangaInfo, indexPath: IndexPath) {
         cell.identifier = info.id
+        let cellSource = SourceManager.shared.store.source(for: info.id.sourceKey)
         cell.setContent(
             title: info.title,
             tags: info.tags ?? [],
-            language: nil,
+            language: CoverLanguageBadge.text(for: cellSource),
             aspectRatio: CoverAspectCache.shared.aspectRatio(for: info.coverUrl?.absoluteString) ?? (2.0 / 3.0),
-            bookmarked: false
+            bookmarked: false,
+            sourceName: waterfallCellsShowSourceBadge ? cellSource?.name : nil
         )
 
         Task {
@@ -143,6 +171,7 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
         if usesWaterfallLayout {
             let layout = MangaWaterfallLayout()
             layout.delegate = self
+            layout.rowsOverride = gridRowsOverride
             return layout
         }
         let layout = UICollectionViewCompositionalLayout { [weak self] sectionIndex, environment in
@@ -152,7 +181,7 @@ class OldMangaCollectionViewController: BaseCollectionViewController {
                     if self.usesListLayout {
                         return Self.makeListLayoutSection(environment: environment)
                     } else {
-                        return Self.makeGridLayoutSection(environment: environment)
+                        return Self.makeGridLayoutSection(environment: environment, rowsOverride: self.gridRowsOverride)
                     }
                 case nil:
                     return nil
@@ -191,16 +220,23 @@ extension OldMangaCollectionViewController {
         return section
     }
 
-    static func makeGridLayoutSection(environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection {
+    static func makeGridLayoutSection(
+        environment: NSCollectionLayoutEnvironment,
+        rowsOverride: (portrait: Int, landscape: Int)? = nil
+    ) -> NSCollectionLayoutSection {
         let layout = AppSettings.appearance.layout.get()
         let containerWidth = environment.container.contentSize.width
         let isLandscape = containerWidth > environment.container.contentSize.height
 
-        let itemsPerRow = getGridItemsPerRow(
-            containerWidth: containerWidth,
-            isLandscape: isLandscape,
-            layout: layout
-        )
+        let itemsPerRow = if let rowsOverride {
+            isLandscape ? rowsOverride.landscape : rowsOverride.portrait
+        } else {
+            getGridItemsPerRow(
+                containerWidth: containerWidth,
+                isLandscape: isLandscape,
+                layout: layout
+            )
+        }
 
         let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
             widthDimension: .fractionalWidth(1 / CGFloat(itemsPerRow)),
@@ -248,27 +284,9 @@ extension OldMangaCollectionViewController {
 
 // MARK: - Collection View Delegate
 extension OldMangaCollectionViewController {
-    func collectionView(_ collectionView: UICollectionView, didHighlightItemAt indexPath: IndexPath) {
-        let cell = collectionView.cellForItem(at: indexPath)
-        if let cell = cell as? MangaGridCell {
-            cell.highlight()
-        } else if let cell = cell as? MangaListCell {
-            cell.highlight()
-        } else if let cell = cell as? MangaWaterfallCell {
-            cell.highlight()
-        }
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didUnhighlightItemAt indexPath: IndexPath) {
-        let cell = collectionView.cellForItem(at: indexPath)
-        if let cell = cell as? MangaGridCell {
-            cell.unhighlight()
-        } else if let cell = cell as? MangaListCell {
-            cell.unhighlight()
-        } else if let cell = cell as? MangaWaterfallCell {
-            cell.unhighlight()
-        }
-    }
+    // no didHighlightItemAt/didUnhighlightItemAt: touches must not paint
+    // the dark overlay over the cover (see setCellHighlight above). The
+    // context menu's targeted preview is the only press feedback now.
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let info = dataSource.itemIdentifier(for: indexPath) else { return }

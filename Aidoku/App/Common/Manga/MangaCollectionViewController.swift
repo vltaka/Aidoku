@@ -302,27 +302,10 @@ extension MangaCollectionViewController {
 
 // MARK: UICollectionViewDelegate
 extension MangaCollectionViewController {
-    func collectionView(_ collectionView: UICollectionView, didHighlightItemAt indexPath: IndexPath) {
-        let cell = collectionView.cellForItem(at: indexPath)
-        if let cell = cell as? MangaGridCell {
-            cell.highlight()
-        } else if let cell = cell as? MangaListCell {
-            cell.highlight()
-        } else if let cell = cell as? MangaWaterfallCell {
-            cell.highlight()
-        }
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didUnhighlightItemAt indexPath: IndexPath) {
-        let cell = collectionView.cellForItem(at: indexPath)
-        if let cell = cell as? MangaGridCell {
-            cell.unhighlight()
-        } else if let cell = cell as? MangaListCell {
-            cell.unhighlight()
-        } else if let cell = cell as? MangaWaterfallCell {
-            cell.unhighlight()
-        }
-    }
+    // no didHighlightItemAt/didUnhighlightItemAt: touches must not paint
+    // the dark overlay over the cover while pressed (a long press sat
+    // under it for the whole press). The context menu's targeted
+    // preview is the only press feedback now.
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard let manga = dataSource.itemIdentifier(for: indexPath) else {
