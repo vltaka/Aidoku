@@ -87,6 +87,17 @@ struct ReaderSettingsView: View {
 
                     SettingView(
                         setting: .init(
+                            key: AppSettings.reader.menuTapArea.key,
+                            title: NSLocalizedString("MENU_TAP_AREA"),
+                            value: .select(.init(
+                                values: ReaderSettings.MenuTapArea.allCases.map { $0.rawValue },
+                                titles: ReaderSettings.MenuTapArea.allCases.map { $0.title }
+                            ))
+                        )
+                    )
+
+                    SettingView(
+                        setting: .init(
                             key: "Reader.animatePageTransitions",
                             title: NSLocalizedString("ANIMATE_PAGE_TRANSITIONS"),
                             value: .toggle(.init())
@@ -543,6 +554,14 @@ extension ReaderSettingsView {
                             values: ReaderSettings.AutoScrollPosition.allCases.map { $0.rawValue },
                             titles: ReaderSettings.AutoScrollPosition.allCases.map { $0.title }
                         ))
+                    )
+                )
+                SettingView(
+                    setting: .init(
+                        key: AppSettings.reader.autoScrollPauseOnBars.key,
+                        title: NSLocalizedString("AUTO_SCROLL_PAUSE_ON_BARS"),
+                        requires: "Reader.autoScroll",
+                        value: .toggle(.init())
                     )
                 )
             }
