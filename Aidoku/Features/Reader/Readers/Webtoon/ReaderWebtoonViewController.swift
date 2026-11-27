@@ -64,6 +64,7 @@ class ReaderWebtoonViewController: ZoomableCollectionViewController {
     private var autoScrollDisplayLink: CADisplayLink?
     private var autoScrollLastTimestamp: CFTimeInterval?
     private var autoScrollPausedForUserInteraction = false
+    private var autoScrollPausedForBars = false
 
     private(set) var isAutoScrolling = false {
         didSet {
@@ -165,10 +166,23 @@ class ReaderWebtoonViewController: ZoomableCollectionViewController {
                 ?? UserDefaults.standard.integer(forKey: "Reader.pagesToPreload")
         }
         addObserver(forName: .readerShowingBars) { [weak self] _ in
-            self?.setLiveTextButtonHidden(false)
+            guard let self else { return }
+            self.setLiveTextButtonHidden(false)
+            // pause auto scroll while the bars are shown, without switching auto scroll off
+            if AppSettings.reader.autoScrollPauseOnBars.get(), self.isAutoScrolling {
+                self.autoScrollPausedForBars = true
+                self.autoScrollLastTimestamp = nil
+                self.updateContentScrollingState()
+            }
         }
         addObserver(forName: .readerHidingBars) { [weak self] _ in
-            self?.setLiveTextButtonHidden(true)
+            guard let self else { return }
+            self.setLiveTextButtonHidden(true)
+            if self.autoScrollPausedForBars {
+                self.autoScrollPausedForBars = false
+                self.autoScrollLastTimestamp = nil
+                self.updateContentScrollingState()
+            }
         }
 
         addObserver(forName: UIApplication.didReceiveMemoryWarningNotification.rawValue) { _ in
@@ -268,6 +282,7 @@ extension ReaderWebtoonViewController {
     func stopAutoScroll() {
         isAutoScrolling = false
         autoScrollPausedForUserInteraction = false
+        autoScrollPausedForBars = false
         autoScrollLastTimestamp = nil
         autoScrollDisplayLink?.invalidate()
         autoScrollDisplayLink = nil
@@ -313,6 +328,7 @@ extension ReaderWebtoonViewController {
         guard
             isAutoScrolling,
             !autoScrollPausedForUserInteraction,
+            !autoScrollPausedForBars,
             !isZooming,
             !isSliding,
             let previousTimestamp = autoScrollLastTimestamp
@@ -347,7 +363,7 @@ extension ReaderWebtoonViewController {
         isContentScrolling =
             scrollView.isDragging
             || scrollView.isDecelerating
-            || (isAutoScrolling && !autoScrollPausedForUserInteraction)
+            || (isAutoScrolling && !autoScrollPausedForUserInteraction && !autoScrollPausedForBars)
     }
 }
 
