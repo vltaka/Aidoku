@@ -23,6 +23,16 @@ protocol MangaWaterfallLayoutDelegate: AnyObject {
         textHeightForItemAt indexPath: IndexPath,
         width: CGFloat
     ) -> CGFloat
+
+    /// A stable identifier for the item, if the data source has one.
+    /// When provided, the layout pins the height it first computes for
+    /// that item (per column width) and never revises it: cover ratios
+    /// arriving later, or any other relayout, then can't move items
+    /// that are already placed.
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        itemIdentifierAt indexPath: IndexPath
+    ) -> AnyHashable?
 }
 
 extension MangaWaterfallLayoutDelegate {
@@ -32,6 +42,13 @@ extension MangaWaterfallLayoutDelegate {
         width: CGFloat
     ) -> CGFloat {
         0
+    }
+
+    func waterfallLayout(
+        _ layout: MangaWaterfallLayout,
+        itemIdentifierAt indexPath: IndexPath
+    ) -> AnyHashable? {
+        nil
     }
 }
 
@@ -45,6 +62,10 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
     private var cellAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var headerAttributes: UICollectionViewLayoutAttributes?
     private var contentHeight: CGFloat = 0
+
+    /// Total item heights pinned by item identifier (and column width):
+    /// the first height computed for an item is the height it keeps.
+    private var pinnedHeights: [AnyHashable: CGFloat] = [:]
 
     override var collectionViewContentSize: CGSize {
         CGSize(width: collectionView?.bounds.width ?? 0, height: contentHeight)
@@ -85,13 +106,24 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
             }
             for item in 0..<collectionView.numberOfItems(inSection: section) {
                 let indexPath = IndexPath(item: item, section: section)
-                let ratio = delegate?.waterfallLayout(self, aspectRatioForItemAt: indexPath) ?? (2.0 / 3.0)
-                let textHeight = delegate?.waterfallLayout(
-                    self,
-                    textHeightForItemAt: indexPath,
-                    width: columnWidth
-                ) ?? 0
-                let height = columnWidth / min(max(ratio, 0.2), 5) + textHeight
+                let height: CGFloat
+                let pinKey = delegate?.waterfallLayout(self, itemIdentifierAt: indexPath)
+                    .map { AnyHashable("\($0)|\(Int(columnWidth.rounded()))") }
+                if let pinKey, let pinned = pinnedHeights[pinKey] {
+                    height = pinned
+                } else {
+                    let ratio = delegate?.waterfallLayout(self, aspectRatioForItemAt: indexPath) ?? (2.0 / 3.0)
+                    let textHeight = delegate?.waterfallLayout(
+                        self,
+                        textHeightForItemAt: indexPath,
+                        width: columnWidth
+                    ) ?? 0
+                    height = columnWidth / min(max(ratio, 0.2), 5) + textHeight
+                    if let pinKey {
+                        if pinnedHeights.count > 20000 { pinnedHeights.removeAll() }
+                        pinnedHeights[pinKey] = height
+                    }
+                }
 
                 var column = 0
                 for index in 1..<columns where columnHeights[index] < columnHeights[column] {
