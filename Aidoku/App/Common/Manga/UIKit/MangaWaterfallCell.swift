@@ -231,12 +231,15 @@ class MangaWaterfallCell: UICollectionViewCell {
         let coverHeight = width / min(max(aspectRatio, 0.2), 5)
         coverContainer.frame = CGRect(x: 0, y: 0, width: width, height: coverHeight)
         imageView.frame = coverContainer.bounds
-        languageBadge.sizeToFit()
+        // the badge width must come from intrinsicContentSize, which is
+        // the one that includes the label's insets; sizeToFit() measures
+        // the bare text, leaving the frame one inset-pair too narrow and
+        // truncating the badge text (ZH showed as Z)
         let languageBadgeHeight = WaterfallItemMetrics.tagChipHeight - 2
         languageBadge.frame = CGRect(
             x: 5,
             y: 5,
-            width: languageBadge.bounds.width,
+            width: languageBadge.intrinsicContentSize.width,
             height: languageBadgeHeight
         )
         // the count badges stack under the language badge when it is
@@ -249,8 +252,7 @@ class MangaWaterfallCell: UICollectionViewCell {
             height: 20
         )
         bookmarkView.frame = CGRect(x: width - 8 - 17, y: 0, width: 17, height: 27)
-        sourceBadge.sizeToFit()
-        let sourceBadgeWidth = sourceBadge.bounds.width
+        let sourceBadgeWidth = sourceBadge.intrinsicContentSize.width
         sourceBadge.frame = CGRect(
             x: width - sourceBadgeWidth - 5 - (bookmarkView.isHidden ? 0 : 25),
             y: 5,
