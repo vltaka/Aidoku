@@ -851,6 +851,12 @@
 "AUTO_SCROLL" = "Auto Scroll";
 "AUTO_SCROLL_SPEED" = "Auto Scroll Speed";
 "AUTO_SCROLL_POSITION" = "Auto Scroll Position";
+"AUTO_SCROLL_PAUSE_ON_BARS" = "Pause Auto Scroll While Menu Is Shown";
+"MENU_TAP_AREA" = "Menu Tap Area";
+"TAP_AREA_FULL" = "Full Screen";
+"TAP_AREA_THIRD" = "Center Third";
+"TAP_AREA_HALF" = "Center Half";
+"TAP_AREA_TWO_THIRDS" = "Center Two-Thirds";
 "POSITION_LEFT" = "Left";
 "POSITION_RIGHT" = "Right";
 "BOTH" = "Both";
