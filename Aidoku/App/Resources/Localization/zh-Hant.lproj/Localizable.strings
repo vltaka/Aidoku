@@ -306,6 +306,12 @@
 "%i_OF_%i" = "%i之%i";
 "%i_PAGES_LEFT" = "剩%i頁";
 "WEBTOON" = "條漫";
+"AUTO_SCROLL_PAUSE_ON_BARS" = "顯示選單時暫停自動滾動";
+"MENU_TAP_AREA" = "呼出選單區域";
+"TAP_AREA_FULL" = "全部區域";
+"TAP_AREA_THIRD" = "中間 1/3";
+"TAP_AREA_HALF" = "中間 1/2";
+"TAP_AREA_TWO_THIRDS" = "中間 2/3";
 "%i_CHAPTERS" = "共%i章";
 "REMOVE_FROM_CATEGORY" = "從類別中移除";
 "PINNED" = "已釘選";
