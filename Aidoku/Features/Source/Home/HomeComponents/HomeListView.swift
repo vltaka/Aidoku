@@ -9,6 +9,31 @@ import AidokuRunner
 import SafariServices
 import SwiftUI
 
+/// Identity for one home component entry, so a row's view state follows
+/// its manga when a list reloads instead of staying bound to the row's
+/// position. Position-bound state is what let a reloaded list keep the
+/// previous entry's cover view (and its image state) on a new entry.
+func homeEntryIdentity(_ entry: HomeComponent.Value.Link) -> String {
+    switch entry.value {
+        case .manga(let manga): "manga:\(manga.key)"
+        case .url(let urlString): "url:\(urlString)"
+        case .listing(let listing): "listing:\(listing.name)"
+    }
+}
+
+/// The identities for a whole component, parallel to its entries;
+/// repeats of the same entry get a suffix so ids stay unique within
+/// the list.
+func homeEntryIdentities(_ entries: [HomeComponent.Value.Link]) -> [String] {
+    var counts: [String: Int] = [:]
+    return entries.map { entry in
+        let base = homeEntryIdentity(entry)
+        let occurrence = counts[base, default: 0]
+        counts[base] = occurrence + 1
+        return occurrence == 0 ? base : "\(base)#\(occurrence)"
+    }
+}
+
 struct HomeListView: View {
     let source: AidokuRunner.Source
     let component: HomeComponent
@@ -111,11 +136,13 @@ struct HomeListView: View {
                         .frame(height: height)
                     } else {
                         LazyVStack {
+                            let entryIds = homeEntryIdentities(entries)
                             ForEach(entries.indices, id: \.self) { offset in
                                 view(
                                     for: entries[offset],
                                     position: offset
                                 )
+                                .id(entryIds[offset])
                             }
                             loadMoreView
                         }
