@@ -98,6 +98,41 @@ class LibraryViewController: OldMangaCollectionViewController {
         displayMode == .waterfall
     }
 
+    // the library mixes manga from many sources on one page, so its
+    // waterfall cells name the source in the top-right corner (like the
+    // history page does)
+    override var waterfallCellsShowSourceBadge: Bool { true }
+
+    /// The library's own column counts, seeded once from the global
+    /// custom rows (see seedLibraryRowsIfNeeded) and independent of the
+    /// global setting from then on.
+    var libraryPortraitRows: Int {
+        let stored = AppSettings.library.portraitRows.get()
+        return stored > 0 ? stored : AppSettings.appearance.customPortraitRows.get()
+    }
+
+    var libraryLandscapeRows: Int {
+        let stored = AppSettings.library.landscapeRows.get()
+        return stored > 0 ? stored : AppSettings.appearance.customLandscapeRows.get()
+    }
+
+    override var gridRowsOverride: (portrait: Int, landscape: Int)? {
+        (portrait: libraryPortraitRows, landscape: libraryLandscapeRows)
+    }
+
+    /// One-time seeding: the first time the library opens after the
+    /// per-library rows were introduced, copy the current global custom
+    /// rows so the page looks exactly as it did, then never read the
+    /// global values again.
+    private func seedLibraryRowsIfNeeded() {
+        if AppSettings.library.portraitRows.get() == 0 {
+            AppSettings.library.portraitRows.set(AppSettings.appearance.customPortraitRows.get())
+        }
+        if AppSettings.library.landscapeRows.get() == 0 {
+            AppSettings.library.landscapeRows.set(AppSettings.appearance.customLandscapeRows.get())
+        }
+    }
+
     override init() {
         super.init()
     }
@@ -426,6 +461,15 @@ class LibraryViewController: OldMangaCollectionViewController {
     }
 
     private func registerSettingsNotifications() {
+        seedLibraryRowsIfNeeded()
+        for key in [AppSettings.library.portraitRows.key, AppSettings.library.landscapeRows.key] {
+            addObserver(forName: key) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.displayMode != .list else { return }
+                    self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
+                }
+            }
+        }
         addObserver(forName: AppSettings.library.pinTitles.key) { [weak self] _ in
             guard let self else { return }
             self.viewModel.pinType = self.viewModel.getPinType()
@@ -1192,6 +1236,46 @@ extension LibraryViewController {
             }
         ]
 
+        // the library's own column counts, adjustable only in the modes
+        // they affect; they are seeded from the global custom rows once
+        // and never follow the global setting afterwards
+        let columnsMenu = UIMenu(
+            title: NSLocalizedString("COVER_COLUMNS"),
+            image: UIImage(systemName: "rectangle.grid.3x2"),
+            children: [
+                UIMenu(
+                    title: NSLocalizedString("PORTRAIT_ROWS"),
+                    options: .displayInline,
+                    children: (2...12).map { rows in
+                        UIAction(
+                            title: "\(rows)",
+                            state: libraryPortraitRows == rows ? .on : .off
+                        ) { [weak self] _ in
+                            guard let self else { return }
+                            AppSettings.library.portraitRows.set(rows)
+                            self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
+                            self.updateMoreMenu()
+                        }
+                    }
+                ),
+                UIMenu(
+                    title: NSLocalizedString("LANDSCAPE_ROWS"),
+                    options: .displayInline,
+                    children: (2...12).map { rows in
+                        UIAction(
+                            title: "\(rows)",
+                            state: libraryLandscapeRows == rows ? .on : .off
+                        ) { [weak self] _ in
+                            guard let self else { return }
+                            AppSettings.library.landscapeRows.set(rows)
+                            self.collectionView.setCollectionViewLayout(self.makeCollectionViewLayout(), animated: true)
+                            self.updateMoreMenu()
+                        }
+                    }
+                )
+            ]
+        )
+
         let sortMenu = UIMenu(
             title: NSLocalizedString("SORT_BY"),
             subtitle: viewModel.sortMethod.title,
@@ -1290,13 +1374,16 @@ extension LibraryViewController {
             }
         }
 
-        moreBarButton.menu = UIMenu(
-            children: [
-                UIMenu(options: .displayInline, children: [selectAction]),
-                UIMenu(options: .displayInline, children: layoutActions),
-                UIMenu(options: .displayInline, children: [sortMenu, filterMenu])
-            ]
-        )
+        var moreMenuChildren: [UIMenuElement] = [
+            UIMenu(options: .displayInline, children: [selectAction]),
+            UIMenu(options: .displayInline, children: layoutActions)
+        ]
+        if displayMode != .list {
+            moreMenuChildren.append(UIMenu(options: .displayInline, children: [columnsMenu]))
+        }
+        moreMenuChildren.append(UIMenu(options: .displayInline, children: [sortMenu, filterMenu]))
+
+        moreBarButton.menu = UIMenu(children: moreMenuChildren)
 
         if #available(iOS 26.0, *) {
             if !viewModel.filters.isEmpty {
@@ -1451,12 +1538,6 @@ extension LibraryViewController {
             updateNavbarItems()
             updateToolbar()
         }
-    }
-
-    // don't highlighting when selecting during editing
-    override func collectionView(_ collectionView: UICollectionView, didHighlightItemAt indexPath: IndexPath) {
-        guard !isEditing else { return }
-        super.collectionView(collectionView, didHighlightItemAt: indexPath)
     }
 
     private func mangaInfo(at path: IndexPath) -> MangaInfo {
