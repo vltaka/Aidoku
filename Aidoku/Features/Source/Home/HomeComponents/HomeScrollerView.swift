@@ -80,7 +80,8 @@ struct HomeScrollerView: View {
                                     width: coverHeight * 2/3,
                                     height: coverHeight,
                                     downsampleWidth: 200,
-                                    bookmarked: mangaKey.flatMap { bookmarkedItems.contains($0) } ?? false
+                                    bookmarked: mangaKey.flatMap { bookmarkedItems.contains($0) } ?? false,
+                                    languageBadgeText: CoverLanguageBadge.text(for: source)
                                 )
 
                                 VStack(alignment: .leading, spacing: 0) {

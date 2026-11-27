@@ -162,7 +162,7 @@ struct HomeListView: View {
 
     @ContentBuilder
     func view(for entry: HomeComponent.Value.Link, position: Int) -> some View {
-        let label = HStack(spacing: 12) {
+        let label = HStack(alignment: .top, spacing: 12) {
             let mangaKey: String? = switch entry.value {
                 case .manga(let manga): manga.key
                 default: nil
@@ -177,10 +177,14 @@ struct HomeListView: View {
                 bookmarked: mangaKey.flatMap { (usesBookmarksState ? bookmarkedItemsState : bookmarkedItems).contains($0) } ?? false
             )
 
+            // the text column is exactly as tall as the cover: the title
+            // runs vertically down it (columns flowing left to right),
+            // and the subtitle and tag lines stay horizontal at the
+            // bottom — one reserved line each, so with no tags the
+            // title simply gets that line's height too
             let titleStack = VStack(alignment: .leading, spacing: 4) {
-                Text(entry.title)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                VerticalTitleView(text: entry.title)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 if let subtitle = entry.subtitle {
                     Text(subtitle)
@@ -217,6 +221,7 @@ struct HomeListView: View {
                     }
                 }
             }
+            .frame(height: coverHeight)
 
             if ranking {
                 HStack(alignment: .top) {
@@ -300,6 +305,59 @@ struct HomeListView: View {
         }
 
         return count
+    }
+}
+
+/// A title set vertically: characters run top to bottom and columns
+/// flow left to right, so a long title uses the full height of the
+/// narrow column beside a list cover instead of being cut off after
+/// two horizontal lines. SwiftUI has no vertical typesetting, so the
+/// title is chunked into single-character cells by hand; latin letters
+/// and digits stack one per cell, like a vertical sign. Whatever does
+/// not fit in the available columns ends with an ellipsis.
+private struct VerticalTitleView: View {
+    let text: String
+
+    // one character cell, sized for the default body font the list
+    // titles use: a full-width glyph plus a little air
+    private let cellWidth: CGFloat = 20
+    private let cellHeight: CGFloat = 22
+
+    var body: some View {
+        GeometryReader { geometry in
+            let charsPerColumn = max(1, Int(geometry.size.height / cellHeight))
+            let maxColumns = max(1, Int(geometry.size.width / cellWidth))
+            let columns = makeColumns(charsPerColumn: charsPerColumn, maxColumns: maxColumns)
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(columns.indices, id: \.self) { columnIndex in
+                    VStack(spacing: 0) {
+                        ForEach(columns[columnIndex].indices, id: \.self) { charIndex in
+                            Text(columns[columnIndex][charIndex])
+                                .frame(width: cellWidth, height: cellHeight)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func makeColumns(charsPerColumn: Int, maxColumns: Int) -> [[String]] {
+        let chars = text.filter { $0 != "\n" }.map(String.init)
+        var columns: [[String]] = []
+        var index = 0
+        while index < chars.count && columns.count < maxColumns {
+            let end = min(index + charsPerColumn, chars.count)
+            var column = Array(chars[index..<end])
+            if end < chars.count && columns.count == maxColumns - 1 && column.count > 1 {
+                // more text than fits: mark the cut at the end of the
+                // last visible column
+                column[column.count - 1] = "…"
+            }
+            columns.append(column)
+            index = end
+        }
+        return columns
     }
 }
 
