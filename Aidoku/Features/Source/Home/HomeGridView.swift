@@ -216,6 +216,8 @@ struct HomeGridView: View {
                 }
             }
         }
+        .id(entry.key)
+        .modifier(HomeItemFrameReporter(itemKey: entry.key))
     }
 
     private func mangaGridItem(entry: AidokuRunner.Manga) -> some View {
@@ -277,6 +279,8 @@ struct HomeGridView: View {
                 }
             }
         }
+        .id(entry.key)
+        .modifier(HomeItemFrameReporter(itemKey: entry.key))
     }
 
     @ContentBuilder
@@ -342,6 +346,34 @@ struct HomeGridView: View {
             }
             .shimmering()
             .padding([.horizontal, .bottom])
+        }
+    }
+}
+
+/// Frames of the home grid items currently on screen, in the home
+/// scroll view's viewport coordinate space. The home page uses them to
+/// remember which entry sits at the top, so the reading position can
+/// be restored when the view tree is rebuilt (e.g. after the app comes
+/// back from the background) instead of landing back at the top.
+struct HomeItemFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private struct HomeItemFrameReporter: ViewModifier {
+    let itemKey: String
+
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: HomeItemFramesPreferenceKey.self,
+                    value: [itemKey: proxy.frame(in: .named("aidokuHomeScroll"))]
+                )
+            }
         }
     }
 }
