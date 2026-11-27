@@ -84,7 +84,7 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
 
         let width = collectionView.bounds.width
         let isLandscape = width > collectionView.bounds.height
-        let columns = max(1, if let rowsOverride {
+        let unclampedColumns = if let rowsOverride {
             isLandscape ? rowsOverride.landscape : rowsOverride.portrait
         } else {
             OldMangaCollectionViewController.getGridItemsPerRow(
@@ -92,7 +92,8 @@ final class MangaWaterfallLayout: UICollectionViewLayout {
                 isLandscape: isLandscape,
                 layout: .custom
             )
-        })
+        }
+        let columns = max(1, unclampedColumns)
         let contentWidth = width - sectionInset.left - sectionInset.right
         let columnWidth = (contentWidth - CGFloat(columns - 1) * itemSpacing) / CGFloat(columns)
 
