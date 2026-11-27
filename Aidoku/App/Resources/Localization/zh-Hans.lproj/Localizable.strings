@@ -832,3 +832,9 @@
 "MIGRATE_WITH_HISTORY" = "迁移并保留历史";
 "AUTO_SCROLL" = "自动滚动";
 "AUTO_SCROLL_SPEED" = "自动滚动速度";
+"AUTO_SCROLL_PAUSE_ON_BARS" = "显示菜单时暂停自动滚动";
+"MENU_TAP_AREA" = "呼出菜单区域";
+"TAP_AREA_FULL" = "全部区域";
+"TAP_AREA_THIRD" = "中间 1/3";
+"TAP_AREA_HALF" = "中间 1/2";
+"TAP_AREA_TWO_THIRDS" = "中间 2/3";
