@@ -134,8 +134,13 @@ struct SourceImageView: View {
             urlRequest: await source.getModifiedImageRequest(url: urlObject, context: nil),
             userInfo: [.processesKey: source.features.processesCovers]
         )
-        imageRequest = request
         CoverRequestCache.shared.store(request, sourceKey: source.key, url: url)
+        // this view may have been reused for a different cover while the
+        // request was being built; a stale request completing late must
+        // never paint the previous manga's cover into the new cell
+        // (covers landing in the wrong places after views rebuild)
+        guard imageUrl == url else { return }
+        imageRequest = request
     }
 }
 
