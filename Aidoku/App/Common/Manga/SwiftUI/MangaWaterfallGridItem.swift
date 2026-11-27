@@ -29,9 +29,17 @@ enum WaterfallItemMetrics {
     static let tagChipHorizontalPadding: CGFloat = 16 // 8 on each side
     static let tagMaxRows = 2
 
+    // text measurement is the same cost every time for the same text at
+    // the same width, so measure once and remember (AENHT's CardMetrics
+    // does the same); bounded so a long session can't grow these forever
+    private static var titleLineCache: [String: Int] = [:]
+    private static var tagRowsCache: [String: [[String]]] = [:]
+
     static func titleLineCount(title: String, width: CGFloat) -> Int {
         guard width > 0 else { return 1 }
         guard !title.isEmpty else { return 0 }
+        let cacheKey = "\(width)|\(title)"
+        if let cached = titleLineCache[cacheKey] { return cached }
         let rect = (title as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -39,12 +47,24 @@ enum WaterfallItemMetrics {
             context: nil
         )
         let lines = Int(ceil(rect.height / titleFont.lineHeight))
-        return min(max(lines, 1), titleMaxLines)
+        let result = min(max(lines, 1), titleMaxLines)
+        if titleLineCache.count > 4096 { titleLineCache.removeAll() }
+        titleLineCache[cacheKey] = result
+        return result
     }
 
     /// Greedy packing of tag chips into at most `tagMaxRows` rows.
     static func tagRows(tags: [String], width: CGFloat) -> [[String]] {
         guard !tags.isEmpty, width > 0 else { return [] }
+        let cacheKey = "\(width)|\(tags.joined(separator: "\u{1}"))"
+        if let cached = tagRowsCache[cacheKey] { return cached }
+        let result = packTagRows(tags: tags, width: width)
+        if tagRowsCache.count > 4096 { tagRowsCache.removeAll() }
+        tagRowsCache[cacheKey] = result
+        return result
+    }
+
+    private static func packTagRows(tags: [String], width: CGFloat) -> [[String]] {
         var rows: [[String]] = []
         var current: [String] = []
         var currentWidth: CGFloat = 0
@@ -157,11 +177,9 @@ struct MangaWaterfallGridItem: View {
                 RoundedRectangle(cornerRadius: 5)
                     .strokeBorder(Color(UIColor.quaternarySystemFill), lineWidth: 1)
             )
-        if coverImage.hasSuffix("gif") {
-            view
-        } else {
-            view.drawingGroup()
-        }
+        // no drawingGroup: rasterizing every cover offscreen as it scrolls
+        // into view is what made waterfall scrolling stutter and heat up
+        view
     }
 
     @ViewBuilder
@@ -242,6 +260,11 @@ enum WaterfallDistributor {
 /// on screen. A distribution is recomputed only when its signature
 /// changes (entries or column count).
 final class WaterfallDistributionCache {
+    /// Shared by every SwiftUI waterfall surface, so a distribution
+    /// survives its view being torn down and rebuilt (e.g. when a sheet
+    /// is presented over the page and dismissed again).
+    static let shared = WaterfallDistributionCache()
+
     private var distributions: [String: [[Int]]] = [:]
     private var signatures: [String: String] = [:]
     private var storedValues: [String: [String: CGFloat]] = [:]
