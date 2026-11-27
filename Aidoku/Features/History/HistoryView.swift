@@ -264,6 +264,51 @@ struct HistoryView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    private var sortedHistorySections: [HistorySection] {
+        viewModel.filteredHistory.values.sorted { $0.daysAgo < $1.daysAgo }
+    }
+
+    /// The frozen waterfall distribution for one history section, plus
+    /// the cover ratios it assumed. Computed in plain code rather than
+    /// inside a view builder, so the type checker doesn't have to chew
+    /// through the hashing/distribution work while inferring the view
+    /// tree (doing it inline made the build fail at the section
+    /// ForEach with misleading Binding errors).
+    private func historyWaterfallLayout(
+        section: HistorySection,
+        columnCount: Int,
+        itemWidth: CGFloat
+    ) -> (distribution: [[Int]], ratios: [String: CGFloat]) {
+        let cacheKey = "history-\(section.daysAgo)"
+        var signatureHasher = Hasher()
+        for entry in section.entries {
+            signatureHasher.combine(entry.chapterId.mangaIdentifier.mangaKey)
+        }
+        let signature = "\(section.entries.count)|\(columnCount)|\(Int(itemWidth.rounded()))|\(signatureHasher.finalize())"
+        let distribution = distributionCache.distribution(key: cacheKey, signature: signature) {
+            var ratios: [String: CGFloat] = [:]
+            let result = WaterfallDistributor.distribute(
+                count: section.entries.count,
+                columns: columnCount
+            ) { index in
+                let entry = section.entries[index]
+                let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
+                let ratio = CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
+                ratios[entry.chapterId.mangaIdentifier.mangaKey] = ratio
+                return itemWidth / ratio
+                    + WaterfallItemMetrics.textHeight(
+                        title: manga?.title ?? "",
+                        tags: manga?.tags ?? [],
+                        width: itemWidth
+                    )
+                    + 20 // chapter/progress subtitle line
+            }
+            distributionCache.setValues(ratios, for: cacheKey)
+            return result
+        }
+        return (distribution, distributionCache.values(for: cacheKey) ?? [:])
+    }
+
     // grid (mode 1) and waterfall (mode 2) rendering of the history entries,
     // still grouped into date sections like the list
     private var historyGridContent: some View {
@@ -275,8 +320,7 @@ struct HistoryView: View {
             )
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    let sections = viewModel.filteredHistory.values.sorted { $0.daysAgo < $1.daysAgo }
-                    ForEach(sections, id: \.daysAgo) { section in
+                    ForEach(sortedHistorySections, id: \HistorySection.daysAgo) { section in
                         if !section.entries.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(Date.makeRelativeDate(days: section.daysAgo))
@@ -303,35 +347,16 @@ struct HistoryView: View {
                                 } else {
                                     // freeze the distribution (and the ratios it
                                     // assumed) per section, so covers never
-                                    // change places once shown
-                                    let cacheKey = "history-\(section.daysAgo)"
-                                    var signatureHasher = Hasher()
-                                    for entry in section.entries {
-                                        signatureHasher.combine(entry.chapterId.mangaIdentifier.mangaKey)
-                                    }
-                                    let signature = "\(section.entries.count)|\(columnCount)|\(Int(itemWidth.rounded()))|\(signatureHasher.finalize())"
-                                    let distribution = distributionCache.distribution(key: cacheKey, signature: signature) {
-                                        var ratios: [String: CGFloat] = [:]
-                                        let result = WaterfallDistributor.distribute(
-                                            count: section.entries.count,
-                                            columns: columnCount
-                                        ) { index in
-                                            let entry = section.entries[index]
-                                            let manga = viewModel.mangaCache[entry.chapterId.mangaIdentifier]
-                                            let ratio = CoverAspectCache.shared.aspectRatio(for: manga?.cover) ?? (2.0 / 3.0)
-                                            ratios[entry.chapterId.mangaIdentifier.mangaKey] = ratio
-                                            return itemWidth / ratio
-                                                + WaterfallItemMetrics.textHeight(
-                                                    title: manga?.title ?? "",
-                                                    tags: manga?.tags ?? [],
-                                                    width: itemWidth
-                                                )
-                                                + 20 // chapter/progress subtitle line
-                                        }
-                                        distributionCache.setValues(ratios, for: cacheKey)
-                                        return result
-                                    }
-                                    let frozenRatios = distributionCache.values(for: cacheKey) ?? [:]
+                                    // change places once shown; the math
+                                    // lives in a helper so this view builder
+                                    // stays trivial for the type checker
+                                    let waterfall = historyWaterfallLayout(
+                                        section: section,
+                                        columnCount: columnCount,
+                                        itemWidth: itemWidth
+                                    )
+                                    let distribution = waterfall.distribution
+                                    let frozenRatios = waterfall.ratios
                                     HStack(alignment: .top, spacing: 12) {
                                         ForEach(distribution.indices, id: \.self) { column in
                                             LazyVStack(spacing: 12) {
