@@ -25,7 +25,43 @@ struct HistoryView: View {
 
     // 0 = list, 1 = grid, 2 = waterfall
     @AppStorage("History.displayMode") private var displayMode = 0
+    // the history page's own column counts for grid/waterfall mode.
+    // 0 (unset) is seeded once from the global custom rows; afterwards
+    // they belong to this page alone and global changes never move them.
+    @AppStorage("History.portraitRows") private var portraitRows = 0
+    @AppStorage("History.landscapeRows") private var landscapeRows = 0
     private let distributionCache = WaterfallDistributionCache.shared
+
+    private var effectivePortraitRows: Int {
+        portraitRows > 0 ? portraitRows : AppSettings.appearance.customPortraitRows.get()
+    }
+
+    private var effectiveLandscapeRows: Int {
+        landscapeRows > 0 ? landscapeRows : AppSettings.appearance.customLandscapeRows.get()
+    }
+
+    private var portraitRowsBinding: Binding<Int> {
+        Binding(
+            get: { effectivePortraitRows },
+            set: { portraitRows = $0 }
+        )
+    }
+
+    private var landscapeRowsBinding: Binding<Int> {
+        Binding(
+            get: { effectiveLandscapeRows },
+            set: { landscapeRows = $0 }
+        )
+    }
+
+    private func seedHistoryRowsIfNeeded() {
+        if portraitRows == 0 {
+            portraitRows = AppSettings.appearance.customPortraitRows.get()
+        }
+        if landscapeRows == 0 {
+            landscapeRows = AppSettings.appearance.customLandscapeRows.get()
+        }
+    }
 
     @State private var listSelection: String? // fix for list highlighting being buggy
 
@@ -72,6 +108,9 @@ struct HistoryView: View {
                 .background(Color(uiColor: .systemBackground))
             }
         }
+        .onAppear {
+            seedHistoryRowsIfNeeded()
+        }
         .customSearchable(
             text: $searchText,
             stacked: false,
@@ -102,6 +141,10 @@ struct HistoryView: View {
                         Text("列表").tag(0)
                         Text("网格").tag(1)
                         Text("瀑布流").tag(2)
+                    }
+                    if displayMode != 0 {
+                        Stepper("竖屏列数：\(effectivePortraitRows)", value: portraitRowsBinding, in: 2...12)
+                        Stepper("横屏列数：\(effectiveLandscapeRows)", value: landscapeRowsBinding, in: 2...12)
                     }
                 } label: {
                     Image(systemName: displayMode == 0 ? "list.bullet" : displayMode == 1 ? "square.grid.2x2" : "square.grid.3x3")
@@ -313,10 +356,9 @@ struct HistoryView: View {
     // still grouped into date sections like the list
     private var historyGridContent: some View {
         GeometryReader { geometry in
-            let columnCount = OldMangaCollectionViewController.getGridItemsPerRow(
-                containerWidth: geometry.size.width,
-                isLandscape: geometry.size.width > geometry.size.height,
-                layout: .custom
+            let columnCount = max(
+                1,
+                geometry.size.width > geometry.size.height ? effectiveLandscapeRows : effectivePortraitRows
             )
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
