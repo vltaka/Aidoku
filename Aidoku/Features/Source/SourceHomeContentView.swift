@@ -42,8 +42,15 @@ struct SourceHomeContentView: View {
 
     // set while a listing switch is in flight; switching listings is
     // supposed to land at the top, so the scroll-anchor restore must
-    // sit that one load out
-    @State private var suppressAnchorRestore = false
+    // sit that load out
+    @State private var listingSwitchInFlight = false
+    // while the app is away from the foreground the rebuilt scroll view
+    // reports the frames of wherever it restarted (the top), which must
+    // not overwrite the remembered anchor before it can be restored
+    @State private var anchorWritesSuspended = false
+    @State private var entriesWereEmpty = true
+
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var path: NavigationCoordinator
 
@@ -103,16 +110,47 @@ struct SourceHomeContentView: View {
                 }
                 .onChange(of: loading) { isLoading in
                     if !isLoading {
-                        restoreScrollAnchor(using: reader)
+                        attemptScrollAnchorRestore(using: reader)
+                    }
+                }
+                .onChange(of: entries.count) { _ in
+                    // the load path hides the loading view before the
+                    // entries land, so the loading trigger alone restores
+                    // against an empty list and gives up; restoring again
+                    // when the entries actually arrive covers that gap
+                    if entriesWereEmpty && !entries.isEmpty {
+                        attemptScrollAnchorRestore(using: reader)
+                    }
+                    entriesWereEmpty = entries.isEmpty
+                }
+                .onChange(of: scenePhase) { phase in
+                    switch phase {
+                        case .active:
+                            // coming back to the foreground: if the view
+                            // tree was rebuilt while away, the scroll view
+                            // restarted at the top with its content intact
+                            // and no load ever fires — restore from the
+                            // remembered anchor now, then let frame
+                            // reports resume once the restore has landed
+                            attemptScrollAnchorRestore(using: reader)
+                            Task {
+                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                anchorWritesSuspended = false
+                            }
+                        case .inactive, .background:
+                            anchorWritesSuspended = true
+                        default:
+                            break
                     }
                 }
                 // update listingSelection when header selection changes;
                 // a separate variable is used in order to perform the rest of the changes along with listingSelection
                 // immediately rather than having a slight delay
                 .onChange(of: headerListingSelection) { value in
-                    suppressAnchorRestore = true
+                    listingSwitchInFlight = true
                     loadListingTask?.cancel()
                     loadListingTask = Task {
+                        defer { listingSwitchInFlight = false }
                         withAnimation {
                             error = nil
                         }
@@ -285,6 +323,7 @@ struct SourceHomeContentView: View {
     /// Remember the entry currently sitting at the top of the scroll
     /// view, from the item frames the grid reports.
     private func updateScrollAnchor(from frames: [String: CGRect]) {
+        guard !anchorWritesSuspended else { return }
         let visible = frames.filter { $0.value.maxY > 0 }
         guard let top = visible.min(by: { lhs, rhs in
             if lhs.value.minY != rhs.value.minY { return lhs.value.minY < rhs.value.minY }
@@ -301,12 +340,13 @@ struct SourceHomeContentView: View {
     /// user left it. The store always holds the last topmost entry, so
     /// when nothing was rebuilt this scrolls to where the user already
     /// is; when the tree was rebuilt in the background it restores the
-    /// position that would otherwise be lost to the top.
-    private func restoreScrollAnchor(using reader: ScrollViewProxy) {
-        if suppressAnchorRestore {
-            suppressAnchorRestore = false
-            return
-        }
+    /// position that would otherwise be lost to the top. Called from
+    /// every point where a restore could become possible (load finished,
+    /// entries landed, app back in the foreground); it is a no-op while
+    /// a listing switch is in flight, since switching listings is
+    /// supposed to land at the top.
+    private func attemptScrollAnchorRestore(using reader: ScrollViewProxy) {
+        guard !listingSwitchInFlight else { return }
         guard listingSelection != 0 || !source.features.providesHome else { return }
         guard
             let anchorKey = HomeScrollAnchorStore.shared.anchor(
