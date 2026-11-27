@@ -23,8 +23,15 @@ struct SourceImageView: View {
     @State private var imageRequest: ImageRequest?
     // the last image this view actually displayed, kept in the view's own
     // state so a re-render (e.g. the multitasking snapshot pass) can draw
-    // it synchronously instead of falling back to the placeholder
+    // it synchronously instead of falling back to the placeholder. The pin
+    // is labelled with the url it belongs to: when a view instance is
+    // reused for a different manga (positional identity in lists and
+    // hosting cells), an unlabelled pin kept painting the previous
+    // manga's cover into the new cell, and since the lazy image below
+    // wasn't in the tree while the pin was shown, nothing ever replaced
+    // it — the cover stayed wrong until the view was thrown away.
     @State private var pinnedImage: UIImage?
+    @State private var pinnedImageUrl: String?
 
     private var processors: [ImageProcessing] {
         var processors: [ImageProcessing] = []
@@ -40,8 +47,11 @@ struct SourceImageView: View {
     var body: some View {
         // if this view already showed the cover, draw the pinned image
         // synchronously; otherwise fall back to the shared memory cache so
-        // a recreated view doesn't flash the placeholder either
-        if let pinnedImage {
+        // a recreated view doesn't flash the placeholder either. The pin
+        // only counts while it still belongs to the current url — a pin
+        // from a previous manga falls through to the lazy image, which
+        // then loads the cover this view is actually for.
+        if let pinnedImage, pinnedImageUrl == imageUrl {
             Image(uiImage: pinnedImage)
                 .resizable()
                 .aspectRatio(contentMode: contentMode)
@@ -92,6 +102,7 @@ struct SourceImageView: View {
                     .onAppear {
                         if let container = state.imageContainer {
                             pinnedImage = container.image
+                            pinnedImageUrl = imageUrl
                             CoverImageMemoryCache.shared.store(
                                 container.image,
                                 for: imageUrl,
@@ -112,6 +123,7 @@ struct SourceImageView: View {
         .onChange(of: imageUrl) { newValue in
             imageRequest = nil
             pinnedImage = nil
+            pinnedImageUrl = nil
             Task {
                 await loadImageRequest(url: newValue)
             }
