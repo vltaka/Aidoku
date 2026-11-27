@@ -460,6 +460,24 @@ extension MangaCollectionViewController {
 
         return UITargetedPreview(view: cell.contentView, parameters: parameters)
     }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        contextMenuConfiguration configuration: UIContextMenuConfiguration,
+        dismissalPreviewForItemAt indexPath: IndexPath
+    ) -> UITargetedPreview? {
+        // without a dismissal preview, the lifted preview's return trip
+        // falls back to a default target and the cell visibly drifts
+        // along when the list is scrolled right after a long-press is
+        // cancelled; returning the same targeted preview as the
+        // highlight keeps it glued to its cell (mirrors
+        // OldMangaCollectionViewController, which has this method)
+        self.collectionView(
+            collectionView,
+            contextMenuConfiguration: configuration,
+            highlightPreviewForItemAt: indexPath
+        )
+    }
 }
 
 // MARK: - Waterfall Layout Delegate
