@@ -14,6 +14,8 @@ struct LibrarySettings: Sendable {
             sortAscending,
             listView,
             displayMode,
+            portraitRows,
+            landscapeRows,
             lastUpdated,
             opensReaderView,
             resumeLastOpenedChapter,
@@ -45,6 +47,13 @@ struct LibrarySettings: Sendable {
     // from the global appearance layout so the two never override
     // each other.
     let displayMode = SettingsKey<Int>("Library.displayMode", default: -1)
+
+    // the library's own grid/waterfall column counts. 0 (unset) is
+    // seeded once from the global custom rows the first time the
+    // library opens after upgrading; from then on the values are the
+    // library's alone and global row changes never touch them.
+    let portraitRows = SettingsKey<Int>("Library.portraitRows", default: 0)
+    let landscapeRows = SettingsKey<Int>("Library.landscapeRows", default: 0)
 
     let lastUpdated = SettingsKey<Date>("Library.lastUpdated", default: Date.distantPast)
     let opensReaderView = SettingsKey<Bool>("Library.opensReaderView", default: false)
