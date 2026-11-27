@@ -1403,7 +1403,9 @@ extension ReaderViewController {
         }
 
         guard let reader, let tapZone else {
-            toggleBarVisibility()
+            if isMenuToggleTapZone(point) {
+                toggleBarVisibility()
+            }
             return
         }
 
@@ -1417,6 +1419,12 @@ extension ReaderViewController {
             .map(\.type)
 
         if let type {
+            // when the menu tap area is restricted, side taps in scroll readers do nothing at all:
+            // no bar dismissal and no scroll jump
+            if (reader is ReaderWebtoonViewController || reader is ReaderTextViewController),
+               !isMenuToggleTapZone(point) {
+                return
+            }
             // hide the bars when tapping regardless
             if let navigationController, navigationController.navigationBar.alpha > 0 {
                 hideBars()
@@ -1434,8 +1442,19 @@ extension ReaderViewController {
                 }
             }
         } else {
-            toggleBarVisibility()
+            if isMenuToggleTapZone(point) {
+                toggleBarVisibility()
+            }
         }
+    }
+
+    /// Whether a tap at this point counts for showing or hiding the bars, honoring the menu tap
+    /// area setting. The active band is centered horizontally; taps on either side of it don't count.
+    private func isMenuToggleTapZone(_ point: CGPoint) -> Bool {
+        guard let fraction = AppSettings.reader.menuTapArea.get().centerFraction else { return true }
+        let minX = view.bounds.width * (1 - fraction) / 2
+        let maxX = view.bounds.width * (1 + fraction) / 2
+        return point.x >= minX && point.x <= maxX
     }
 
     private func isReaderControlToggleTapZone(_ point: CGPoint) -> Bool {
