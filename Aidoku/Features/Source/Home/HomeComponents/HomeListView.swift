@@ -18,6 +18,7 @@ func homeEntryIdentity(_ entry: HomeComponent.Value.Link) -> String {
         case .manga(let manga): "manga:\(manga.key)"
         case .url(let urlString): "url:\(urlString)"
         case .listing(let listing): "listing:\(listing.name)"
+        case .none: "none"
     }
 }
 
