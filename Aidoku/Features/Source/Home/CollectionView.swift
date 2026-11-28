@@ -74,6 +74,7 @@ struct CollectionView: UIViewControllerRepresentable {
             // visible then anyway; hold the reload until the app is
             // active again and apply the latest data then.
             guard UIApplication.shared.applicationState == .active else {
+                log("[probe] collection update deferred while app not active")
                 pendingApplyViewController = viewController
                 if !observingActivation {
                     observingActivation = true
@@ -104,6 +105,7 @@ struct CollectionView: UIViewControllerRepresentable {
         }
 
         @objc private func applicationDidBecomeActive() {
+            log("[probe] collection applying deferred update on become active")
             guard let viewController = pendingApplyViewController else { return }
             pendingApplyViewController = nil
             apply(to: viewController)
