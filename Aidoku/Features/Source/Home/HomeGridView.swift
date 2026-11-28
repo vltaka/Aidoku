@@ -15,7 +15,6 @@ struct HomeGridView: View {
     @Binding var bookmarkedItems: Set<String>
     var loadMore: (() async -> Void)?
     var onSelect: ((AidokuRunner.Manga) -> Void)?
-    var onItemVisibilityChange: ((String, Bool) -> Void)?
 
     @State private var loadingMore = false
     @State private var columns: [GridItem]
@@ -32,7 +31,6 @@ struct HomeGridView: View {
         entries: [AidokuRunner.Manga],
         containerWidth: CGFloat,
         bookmarkedItems: Binding<Set<String>> = .constant([]),
-        onItemVisibilityChange: ((String, Bool) -> Void)? = nil,
         loadMore: (() async -> Void)? = nil,
         onSelect: ((AidokuRunner.Manga) -> Void)? = nil
     ) {
@@ -42,7 +40,6 @@ struct HomeGridView: View {
         self._bookmarkedItems = bookmarkedItems
         self.loadMore = loadMore
         self.onSelect = onSelect
-        self.onItemVisibilityChange = onItemVisibilityChange
         self._columns = State(initialValue: Self.getColumns(itemsPerRow: 1))
     }
 
@@ -220,9 +217,6 @@ struct HomeGridView: View {
             }
         }
         .id(entry.key)
-        .modifier(HomeItemFrameReporter(itemKey: entry.key))
-        .onAppear { onItemVisibilityChange?(entry.key, true) }
-        .onDisappear { onItemVisibilityChange?(entry.key, false) }
     }
 
     private func mangaGridItem(entry: AidokuRunner.Manga) -> some View {
@@ -285,9 +279,6 @@ struct HomeGridView: View {
             }
         }
         .id(entry.key)
-        .modifier(HomeItemFrameReporter(itemKey: entry.key))
-        .onAppear { onItemVisibilityChange?(entry.key, true) }
-        .onDisappear { onItemVisibilityChange?(entry.key, false) }
     }
 
     @ContentBuilder
@@ -353,34 +344,6 @@ struct HomeGridView: View {
             }
             .shimmering()
             .padding([.horizontal, .bottom])
-        }
-    }
-}
-
-/// Frames of the home grid items currently on screen, in the home
-/// scroll view's viewport coordinate space. The home page uses them to
-/// remember which entry sits at the top, so the reading position can
-/// be restored when the view tree is rebuilt (e.g. after the app comes
-/// back from the background) instead of landing back at the top.
-struct HomeItemFramesPreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
-
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
-private struct HomeItemFrameReporter: ViewModifier {
-    let itemKey: String
-
-    func body(content: Content) -> some View {
-        content.background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: HomeItemFramesPreferenceKey.self,
-                    value: [itemKey: proxy.frame(in: .named("aidokuHomeScroll"))]
-                )
-            }
         }
     }
 }
