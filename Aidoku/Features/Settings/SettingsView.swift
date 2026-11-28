@@ -77,24 +77,24 @@ extension SettingsView {
                                         Group {
                                             let iconSize: CGFloat = 29
                                             switch icon {
-                                            case .system(let name, let color, let inset):
-                                                Image(systemName: name)
-                                                    .resizable()
-                                                    .renderingMode(.template)
-                                                    .foregroundStyle(.white)
-                                                    .aspectRatio(contentMode: .fit)
-                                                    .padding(CGFloat(inset))
-                                                    .frame(width: iconSize, height: iconSize)
-                                                    .background(color.toColor())
+                                                case .system(let name, let color, let inset):
+                                                    Image(systemName: name)
+                                                        .resizable()
+                                                        .renderingMode(.template)
+                                                        .foregroundStyle(.white)
+                                                        .aspectRatio(contentMode: .fit)
+                                                        .padding(CGFloat(inset))
+                                                        .frame(width: iconSize, height: iconSize)
+                                                        .background(color.toColor())
+                                                        .clipShape(RoundedRectangle(cornerRadius: 6.5))
+                                                case .url(let string):
+                                                    SourceImageView(
+                                                        imageUrl: string,
+                                                        width: iconSize,
+                                                        height: iconSize,
+                                                        downsampleWidth: iconSize * 2
+                                                    )
                                                     .clipShape(RoundedRectangle(cornerRadius: 6.5))
-                                            case .url(let string):
-                                                SourceImageView(
-                                                    imageUrl: string,
-                                                    width: iconSize,
-                                                    height: iconSize,
-                                                    downsampleWidth: iconSize * 2
-                                                )
-                                                .clipShape(RoundedRectangle(cornerRadius: 6.5))
                                             }
                                         }
                                         .scaleEffect(0.75)
@@ -105,7 +105,7 @@ extension SettingsView {
                                     Spacer()
                                 }
                             }
-                        }
+
                         }
                     }
                 }
@@ -167,6 +167,7 @@ extension SettingsView {
                 } else {
                     UIApplication.shared.firstKeyWindow?.overrideUserInterfaceStyle = .unspecified
                 }
+
             case "Logs.logServer":
                 Task {
                     let url = UserDefaults.standard.string(forKey: "Logs.logServer").flatMap(URL.init)
