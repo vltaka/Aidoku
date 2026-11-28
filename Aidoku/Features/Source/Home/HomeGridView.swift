@@ -84,6 +84,7 @@ struct HomeGridView: View {
             updateItemsPerRow(width: width)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            log("[probe] grid didBecomeActive, updating items per row")
             // fixes bug where item per row is incorrect when closing and opening app
             updateItemsPerRow()
         }
