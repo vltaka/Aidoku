@@ -40,36 +40,10 @@ struct SourceHomeContentView: View {
 
     @State private var listingLoadState: ListingLoadState = .loading
 
-    // set while a listing switch is in flight; switching listings is
-    // supposed to land at the top, so the scroll-anchor restore must
-    // sit that load out
+    // set while a listing switch is in flight, so a load-more that
+    // started under the old listing cannot land under the new one and
+    // a reload cannot cancel the switch half-way through
     @State private var listingSwitchInFlight = false
-    // while the app is away from the foreground the rebuilt scroll view
-    // reports the frames of wherever it restarted (the top), which must
-    // not overwrite the remembered anchor before it can be restored
-    @State private var anchorWritesSuspended = false
-    // a restore to this entry has been issued but not yet confirmed by
-    // the frame reports; while it is set, writes stay suspended and the
-    // frame reports drive the restore instead (see updateScrollAnchor)
-    @State private var pendingAnchorKey: String?
-    @State private var anchorRestoreTask: Task<Void, Never>?
-    // latest item frames reported by the grid, kept so the anchor
-    // restore loop can tell which entries are realized right now
-    @State private var latestItemFrames: [String: CGRect] = [:]
-    @State private var entriesWereEmpty = true
-    // entries whose cells currently exist, reported by the grid cells
-    // themselves (appear/disappear). This is the second channel for
-    // remembering the reading position: the frame reports above stop
-    // cold during a fast fling, but a cell cannot be on screen without
-    // having appeared, so this channel keeps up exactly where the
-    // frame channel freezes
-    @State private var visibleEntryKeys: Set<String> = []
-    // when the frame channel last produced the top entry; the
-    // visibility channel only writes when the frame channel has gone
-    // quiet, since the frame value is the more precise of the two
-    @State private var lastFrameAnchorWrite = Date.distantPast
-
-    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var path: NavigationCoordinator
 
@@ -124,59 +98,11 @@ struct SourceHomeContentView: View {
                     }
                     await task.value
                 }
-                .onPreferenceChange(HomeItemFramesPreferenceKey.self) { frames in
-                    latestItemFrames = frames
-                    updateScrollAnchor(from: frames, using: reader)
-                }
-                .onChange(of: loading) { isLoading in
-                    if !isLoading {
-                        attemptScrollAnchorRestore(using: reader)
-                    }
-                }
-                .onChange(of: entries.count) { _ in
-                    // the load path hides the loading view before the
-                    // entries land, so the loading trigger alone restores
-                    // against an empty list and gives up; restoring again
-                    // when the entries actually arrive covers that gap
-                    if entriesWereEmpty && !entries.isEmpty {
-                        attemptScrollAnchorRestore(using: reader)
-                    }
-                    entriesWereEmpty = entries.isEmpty
-                }
-                .onChange(of: scenePhase) { phase in
-                    switch phase {
-                        case .active:
-                            // coming back to the foreground: if the view
-                            // tree was rebuilt while away, the scroll view
-                            // restarted at the top with its content intact
-                            // and no load ever fires — restore from the
-                            // remembered anchor now. Frame reports stay
-                            // suspended until they confirm the restore
-                            // landed (see updateScrollAnchor); when there
-                            // is no anchor to restore there is nothing to
-                            // protect, so writes resume right away.
-                            attemptScrollAnchorRestore(using: reader)
-                            if pendingAnchorKey == nil {
-                                anchorWritesSuspended = false
-                            }
-                        case .inactive, .background:
-                            anchorWritesSuspended = true
-                            anchorRestoreTask?.cancel()
-                        default:
-                            break
-                    }
-                }
                 // update listingSelection when header selection changes;
                 // a separate variable is used in order to perform the rest of the changes along with listingSelection
                 // immediately rather than having a slight delay
                 .onChange(of: headerListingSelection) { value in
                     listingSwitchInFlight = true
-                    // a pending restore belongs to the outgoing listing
-                    pendingAnchorKey = nil
-                    anchorRestoreTask?.cancel()
-                    // the visible set belongs to the outgoing listing
-                    // too; the incoming listing's cells report fresh
-                    visibleEntryKeys = []
                     loadListingTask?.cancel()
                     loadListingTask = Task {
                         defer { listingSwitchInFlight = false }
@@ -225,7 +151,6 @@ struct SourceHomeContentView: View {
                     }
                 }
             }
-            .coordinateSpace(name: "aidokuHomeScroll")
             .onChange(of: listings) { value in
                 // reset listing selection to the first if the selected one disappears
                 let maxListings = value.count - (source.features.providesHome ? 0 : 1)
@@ -286,15 +211,7 @@ struct SourceHomeContentView: View {
                                 source: source,
                                 entries: entries,
                                 containerWidth: containerWidth,
-                                bookmarkedItems: $bookmarkedItems,
-                                onItemVisibilityChange: { key, visible in
-                                    if visible {
-                                        visibleEntryKeys.insert(key)
-                                    } else {
-                                        visibleEntryKeys.remove(key)
-                                    }
-                                    updateVisibilityAnchor()
-                                }
+                                bookmarkedItems: $bookmarkedItems
                             ) {
                                 if hasMore && listingLoadState != .loading {
                                     await loadEntries()
@@ -363,142 +280,6 @@ struct SourceHomeContentView: View {
             .transition(.opacity)
         }
         .padding(.bottom)
-    }
-    /// Remember the entry currently sitting at the top of the scroll
-    /// view, from the item frames the grid reports. While a restore is
-    /// pending the frames are only used to drive and confirm that
-    /// restore, never written down: the rebuilt scroll view sits at the
-    /// top, and writing its top entry would overwrite the very position
-    /// being restored, for good.
-    private func updateScrollAnchor(from frames: [String: CGRect], using reader: ScrollViewProxy) {
-        // while a listing switch is in flight the frames still come from
-        // the outgoing listing's content; writing them down under the new
-        // listing's key would poison its remembered position
-        guard !listingSwitchInFlight else { return }
-        let visible = frames.filter { $0.value.maxY > 0 }
-        guard let top = visible.min(by: { lhs, rhs in
-            if lhs.value.minY != rhs.value.minY { return lhs.value.minY < rhs.value.minY }
-            return lhs.key < rhs.key
-        }) else { return }
-        if let pendingKey = pendingAnchorKey {
-            if top.key == pendingKey {
-                // the remembered entry is back at the top: the restore
-                // landed, so frame reports can be trusted again
-                pendingAnchorKey = nil
-                anchorRestoreTask?.cancel()
-                anchorWritesSuspended = false
-                log("[anchor] restore confirmed", pendingKey, "listing", listingSelection)
-            } else {
-                // not there yet: the restore loop keeps relaying the
-                // scroll toward it; these frames must not be written
-                // down as the position in the meantime
-                return
-            }
-        }
-        guard !anchorWritesSuspended else { return }
-        lastFrameAnchorWrite = Date()
-        if HomeScrollAnchorStore.shared.anchor(sourceKey: source.key, listing: listingSelection) != top.key {
-            HomeScrollAnchorStore.shared.setAnchor(
-                sourceKey: source.key,
-                listing: listingSelection,
-                topKey: top.key
-            )
-            log("[anchor] frame write", top.key, "listing", listingSelection)
-        }
-    }
-
-    /// The second channel for remembering the reading position: the
-    /// grid cells report themselves appearing and disappearing, and
-    /// the first visible entry in reading order is the position. The
-    /// frame channel (updateScrollAnchor) is more precise, so this
-    /// only writes when that channel has gone quiet — during a fast
-    /// fling its reports stop entirely, which is exactly when the
-    /// position used to freeze at whatever it was before the fling.
-    private func updateVisibilityAnchor() {
-        guard !listingSwitchInFlight else { return }
-        guard pendingAnchorKey == nil, !anchorWritesSuspended else { return }
-        guard Date().timeIntervalSince(lastFrameAnchorWrite) > 0.3 else { return }
-        guard let topKey = entries.first(where: { visibleEntryKeys.contains($0.key) })?.key
-        else { return }
-        if HomeScrollAnchorStore.shared.anchor(sourceKey: source.key, listing: listingSelection) != topKey {
-            HomeScrollAnchorStore.shared.setAnchor(
-                sourceKey: source.key,
-                listing: listingSelection,
-                topKey: topKey
-            )
-            log("[anchor] visibility write", topKey, "listing", listingSelection)
-        }
-    }
-
-    /// After content (re)loads, put the scroll position back where the
-    /// user left it. The store always holds the last topmost entry, so
-    /// when nothing was rebuilt this scrolls to where the user already
-    /// is; when the tree was rebuilt in the background it restores the
-    /// position that would otherwise be lost to the top. Called from
-    /// every point where a restore could become possible (load finished,
-    /// entries landed, app back in the foreground); it is a no-op while
-    /// a listing switch is in flight, since switching listings is
-    /// supposed to land at the top. Issuing a restore also marks it
-    /// pending: anchor writes stay suspended until the frame reports
-    /// confirm the entry is back at the top (see updateScrollAnchor).
-    private func attemptScrollAnchorRestore(using reader: ScrollViewProxy) {
-        guard !listingSwitchInFlight else { return }
-        guard listingSelection != 0 || !source.features.providesHome else { return }
-        guard
-            let anchorKey = HomeScrollAnchorStore.shared.anchor(
-                sourceKey: source.key,
-                listing: listingSelection
-            )
-        else { return }
-        if pendingAnchorKey != anchorKey {
-            pendingAnchorKey = anchorKey
-        }
-        log("[anchor] restore start", anchorKey, "listing", listingSelection)
-        anchorWritesSuspended = true
-        if entries.contains(where: { $0.key == anchorKey }) {
-            reader.scrollTo(anchorKey, anchor: .top)
-        }
-        // Relay the scroll the rest of the way. The target may sit in a
-        // lazy stack far below what is realized right now, and a single
-        // scrollTo cannot reach an entry that does not exist yet; it
-        // stops at the deepest realized one. So keep stepping: scroll
-        // to the deepest realized entry, let the next chunk realize,
-        // and repeat until the target itself is realized and scrolled
-        // to. The loop runs on a timer because once a step settles, no
-        // further frame changes arrive to drive another attempt. It
-        // ends when the frame reports confirm the target is back at
-        // the top (see updateScrollAnchor), or after a few seconds so
-        // it never fights the user for long.
-        anchorRestoreTask?.cancel()
-        anchorRestoreTask = Task { @MainActor in
-            var ticks = 0
-            while let key = pendingAnchorKey, ticks < 20 {
-                ticks += 1
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard pendingAnchorKey == key, !Task.isCancelled else { return }
-                if latestItemFrames[key] != nil || visibleEntryKeys.contains(key) {
-                    reader.scrollTo(key, anchor: .top)
-                } else if let stone = deepestMaterializedKey() {
-                    reader.scrollTo(stone, anchor: .top)
-                }
-            }
-            if pendingAnchorKey != nil {
-                log("[anchor] restore gave up", pendingAnchorKey ?? "nil", "listing", listingSelection)
-                pendingAnchorKey = nil
-                anchorWritesSuspended = false
-            }
-        }
-    }
-
-    /// The realized entry furthest along the current list, from the
-    /// frames the grid has reported. Used as a stepping stone by the
-    /// anchor restore loop.
-    private func deepestMaterializedKey() -> String? {
-        let indexByKey = Dictionary(
-            entries.enumerated().map { ($0.element.key, $0.offset) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return latestItemFrames.keys.max(by: { (indexByKey[$0] ?? -1) < (indexByKey[$1] ?? -1) })
     }
 }
 
@@ -689,34 +470,5 @@ extension SourceHomeContentView {
                 self.error = error
             }
         }
-    }
-}
-
-/// The last topmost visible entry of each listing, remembered outside
-/// the view tree. The home view tree is recreated when the app comes
-/// back from the background (and its scroll view with it), which used
-/// to drop the reading position back to the top; the grid reports the
-/// top entry while scrolling, and the position is restored from here
-/// once content finishes loading.
-final class HomeScrollAnchorStore {
-    static let shared = HomeScrollAnchorStore()
-
-    private let lock = NSLock()
-    private var anchors: [String: String] = [:]
-
-    private func key(sourceKey: String, listing: Int) -> String {
-        "\(sourceKey)|\(listing)"
-    }
-
-    func setAnchor(sourceKey: String, listing: Int, topKey: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        anchors[key(sourceKey: sourceKey, listing: listing)] = topKey
-    }
-
-    func anchor(sourceKey: String, listing: Int) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return anchors[key(sourceKey: sourceKey, listing: listing)]
     }
 }
