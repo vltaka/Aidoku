@@ -57,6 +57,17 @@ struct SourceHomeContentView: View {
     // restore loop can tell which entries are realized right now
     @State private var latestItemFrames: [String: CGRect] = [:]
     @State private var entriesWereEmpty = true
+    // entries whose cells currently exist, reported by the grid cells
+    // themselves (appear/disappear). This is the second channel for
+    // remembering the reading position: the frame reports above stop
+    // cold during a fast fling, but a cell cannot be on screen without
+    // having appeared, so this channel keeps up exactly where the
+    // frame channel freezes
+    @State private var visibleEntryKeys: Set<String> = []
+    // when the frame channel last produced the top entry; the
+    // visibility channel only writes when the frame channel has gone
+    // quiet, since the frame value is the more precise of the two
+    @State private var lastFrameAnchorWrite = Date.distantPast
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -163,24 +174,32 @@ struct SourceHomeContentView: View {
                     // a pending restore belongs to the outgoing listing
                     pendingAnchorKey = nil
                     anchorRestoreTask?.cancel()
+                    // the visible set belongs to the outgoing listing
+                    // too; the incoming listing's cells report fresh
+                    visibleEntryKeys = []
                     loadListingTask?.cancel()
                     loadListingTask = Task {
                         defer { listingSwitchInFlight = false }
                         error = nil
 
                         if value != 0 || !source.features.providesHome {
-                            // load listing. The selection (and with it the
-                            // visible content) only flips inside loadEntries
-                            // at the moment the new listing's first page
-                            // lands, so the current page stays on screen
-                            // untouched until the swap — no staged scroll,
-                            // skeleton, or cross-fade in between.
-                            await loadListing(setListingSelection: value)
-                            // the swap just landed at whatever scroll
-                            // offset the old page had; start at the top
-                            if !Task.isCancelled {
-                                reader.scrollTo(0)
+                            // load listing. The selection flips right
+                            // now, with the tap, and the incoming
+                            // listing's skeleton takes the screen: the
+                            // outgoing listing's content never lingers
+                            // waiting for the new data, and nothing but
+                            // the new listing's skeleton or its own
+                            // content can appear in between. (This is
+                            // the original app's switch shape, minus its
+                            // staged waits.)
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                listingSelection = value
+                                entries = []
+                                listingHome = nil
+                                loading = true
                             }
+                            reader.scrollTo(0)
+                            await loadListing()
                         } else {
                             // switch to home: its content is already in
                             // memory, so this swap lands immediately too,
@@ -264,7 +283,15 @@ struct SourceHomeContentView: View {
                                 source: source,
                                 entries: entries,
                                 containerWidth: containerWidth,
-                                bookmarkedItems: $bookmarkedItems
+                                bookmarkedItems: $bookmarkedItems,
+                                onItemVisibilityChange: { key, visible in
+                                    if visible {
+                                        visibleEntryKeys.insert(key)
+                                    } else {
+                                        visibleEntryKeys.remove(key)
+                                    }
+                                    updateVisibilityAnchor()
+                                }
                             ) {
                                 if hasMore && listingLoadState != .loading {
                                     await loadEntries()
@@ -357,6 +384,7 @@ struct SourceHomeContentView: View {
                 pendingAnchorKey = nil
                 anchorRestoreTask?.cancel()
                 anchorWritesSuspended = false
+                log("[anchor] restore confirmed", pendingKey, "listing", listingSelection)
             } else {
                 // not there yet: the restore loop keeps relaying the
                 // scroll toward it; these frames must not be written
@@ -365,11 +393,38 @@ struct SourceHomeContentView: View {
             }
         }
         guard !anchorWritesSuspended else { return }
-        HomeScrollAnchorStore.shared.setAnchor(
-            sourceKey: source.key,
-            listing: listingSelection,
-            topKey: top.key
-        )
+        lastFrameAnchorWrite = Date()
+        if HomeScrollAnchorStore.shared.anchor(sourceKey: source.key, listing: listingSelection) != top.key {
+            HomeScrollAnchorStore.shared.setAnchor(
+                sourceKey: source.key,
+                listing: listingSelection,
+                topKey: top.key
+            )
+            log("[anchor] frame write", top.key, "listing", listingSelection)
+        }
+    }
+
+    /// The second channel for remembering the reading position: the
+    /// grid cells report themselves appearing and disappearing, and
+    /// the first visible entry in reading order is the position. The
+    /// frame channel (updateScrollAnchor) is more precise, so this
+    /// only writes when that channel has gone quiet — during a fast
+    /// fling its reports stop entirely, which is exactly when the
+    /// position used to freeze at whatever it was before the fling.
+    private func updateVisibilityAnchor() {
+        guard !listingSwitchInFlight else { return }
+        guard pendingAnchorKey == nil, !anchorWritesSuspended else { return }
+        guard Date().timeIntervalSince(lastFrameAnchorWrite) > 0.3 else { return }
+        guard let topKey = entries.first(where: { visibleEntryKeys.contains($0.key) })?.key
+        else { return }
+        if HomeScrollAnchorStore.shared.anchor(sourceKey: source.key, listing: listingSelection) != topKey {
+            HomeScrollAnchorStore.shared.setAnchor(
+                sourceKey: source.key,
+                listing: listingSelection,
+                topKey: topKey
+            )
+            log("[anchor] visibility write", topKey, "listing", listingSelection)
+        }
     }
 
     /// After content (re)loads, put the scroll position back where the
@@ -395,6 +450,7 @@ struct SourceHomeContentView: View {
         if pendingAnchorKey != anchorKey {
             pendingAnchorKey = anchorKey
         }
+        log("[anchor] restore start", anchorKey, "listing", listingSelection)
         anchorWritesSuspended = true
         if entries.contains(where: { $0.key == anchorKey }) {
             reader.scrollTo(anchorKey, anchor: .top)
@@ -417,13 +473,14 @@ struct SourceHomeContentView: View {
                 ticks += 1
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard pendingAnchorKey == key, !Task.isCancelled else { return }
-                if latestItemFrames[key] != nil {
+                if latestItemFrames[key] != nil || visibleEntryKeys.contains(key) {
                     reader.scrollTo(key, anchor: .top)
                 } else if let stone = deepestMaterializedKey() {
                     reader.scrollTo(stone, anchor: .top)
                 }
             }
             if pendingAnchorKey != nil {
+                log("[anchor] restore gave up", key, "listing", listingSelection)
                 pendingAnchorKey = nil
                 anchorWritesSuspended = false
             }
@@ -525,17 +582,14 @@ extension SourceHomeContentView {
         }
     }
 
-    func loadListing(setListingSelection: Int? = nil) async {
+    func loadListing() async {
         page = 1
-        // listingHome is intentionally not cleared here: the old
-        // listing's layout stays on screen until the new content lands
-        // and replaces it in loadEntries
-        await loadEntries(initial: true, setListingSelection: setListingSelection)
+        await loadEntries(initial: true)
     }
 
-    func loadEntries(initial: Bool = false, setListingSelection: Int? = nil) async {
+    func loadEntries(initial: Bool = false) async {
         do {
-            guard let listing = listing(for: setListingSelection ?? listingSelection)
+            guard let listing = currentListing
             else { return }
 
             listingLoadState = .loading
@@ -544,17 +598,12 @@ extension SourceHomeContentView {
             if initial {
                 if let home = try await source.getListingHome(listing: listing) {
                     // Source provides custom Home-like layout for this
-                    // listing. Everything swaps in one step now that the
-                    // content has landed: layout, entries, and selection.
-                    // The one swap is faded, like the original design;
-                    // what made switching feel broken was never the
-                    // fade, it was the staged waits around it.
+                    // listing. The selection already flipped when the
+                    // switch started; only the layout lands here, in
+                    // the same short fade as a regular swap.
                     withAnimation(.easeInOut(duration: 0.2)) {
                         listingHome = home
                         entries = []
-                        if let setListingSelection {
-                            listingSelection = setListingSelection
-                        }
                         loading = false
                     }
 
@@ -570,9 +619,10 @@ extension SourceHomeContentView {
                 return
             }
 
-            // start loading listing items. The current content is left
-            // completely untouched while this is in flight; the swap
-            // happens in one step when the results land below.
+            // start loading listing items. While this is in flight the
+            // screen holds either the incoming listing's skeleton (on
+            // a switch) or the current content (on a reload); the
+            // results land in one step below.
             let resultTask = Task {
                 try await source.getMangaList(listing: listing, page: page)
             }
@@ -612,16 +662,13 @@ extension SourceHomeContentView {
             guard !Task.isCancelled else { return }
 
             if initial {
-                // the one-step swap: new entries and, for a listing
-                // switch, the new selection land together in a single
-                // short fade, so no skeleton, ghost, or old/new overlap
-                // ever renders — and the swap is not a hard cut either
+                // the one-step swap: the new entries land in a single
+                // short fade. The selection already flipped when the
+                // switch started, so what appears is only ever the new
+                // listing's own content.
                 withAnimation(.easeInOut(duration: 0.2)) {
                     listingHome = nil
                     entries = result.entries
-                    if let setListingSelection {
-                        listingSelection = setListingSelection
-                    }
                 }
             } else {
                 // append to existing entries
@@ -632,12 +679,8 @@ extension SourceHomeContentView {
         } catch {
             guard !Task.isCancelled else { return }
 
-            // if this was a listing switch, still land on the tapped
-            // listing so the page identity matches the chip bar and the
-            // error view's retry targets the right listing
-            if let setListingSelection {
-                listingSelection = setListingSelection
-            }
+            // the selection already flipped when the switch started,
+            // so the error view's retry targets the right listing
             loading = false
             withAnimation {
                 self.error = error
