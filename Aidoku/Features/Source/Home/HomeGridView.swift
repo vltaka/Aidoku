@@ -89,14 +89,12 @@ struct HomeGridView: View {
         }
         .onChange(of: containerWidth) { width in
             guard UIApplication.shared.applicationState == .active else {
-                log("[probe] containerWidth change to \(width) ignored while app not active")
                 return
             }
             layoutWidth = width
             updateItemsPerRow()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            log("[probe] grid didBecomeActive, updating items per row")
             // fixes bug where item per row is incorrect when closing and opening app
             layoutWidth = containerWidth
             updateItemsPerRow()
@@ -314,7 +312,6 @@ struct HomeGridView: View {
         // never relayout while the app isn't active (see layoutWidth);
         // the didBecomeActive handler re-runs this with the real size
         guard UIApplication.shared.applicationState == .active else {
-            log("[probe] updateItemsPerRow skipped while app not active")
             return
         }
         let layout = AppSettings.appearance.layout.get()
@@ -326,7 +323,6 @@ struct HomeGridView: View {
             isLandscape: landscape,
             layout: layout
         )
-        log("[probe] updateItemsPerRow: \(itemsPerRow)/\(isWaterfall) -> \(newItemsPerRow)/\(newIsWaterfall), width=\(effectiveWidth), landscape=\(landscape)")
         // only touch the state when the result actually changed: assigning
         // the same values still invalidates the view, and a grid rebuilt
         // for no reason makes the scroll view drop its position (the page
