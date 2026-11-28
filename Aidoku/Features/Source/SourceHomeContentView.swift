@@ -152,6 +152,7 @@ struct SourceHomeContentView: View {
                 }
             }
             .onChange(of: listings) { value in
+                log("[probe] listings changed, count=\(value.count), selection=\(listingSelection)")
                 // reset listing selection to the first if the selected one disappears
                 let maxListings = value.count - (source.features.providesHome ? 0 : 1)
                 if listingSelection > maxListings {
@@ -164,6 +165,7 @@ struct SourceHomeContentView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .init("refresh-content"))) { _ in
+                log("[probe] refresh-content received, selection=\(listingSelection)")
                 loadTask?.cancel()
                 loadTask = Task {
                     guard !Task.isCancelled else { return }
@@ -177,10 +179,12 @@ struct SourceHomeContentView: View {
             .task {
                 guard !hasLoaded else { return }
                 hasLoaded = true
+                log("[probe] content view task ran (fresh view), reloading initial")
                 await reload(initial: true)
             }
             .environmentObject(path)
             .onAppear {
+                log("[probe] content view onAppear")
                 containerWidth = geometry.size.width
             }
             .onChange(of: geometry.size.width) { width in
@@ -286,6 +290,7 @@ struct SourceHomeContentView: View {
 
 extension SourceHomeContentView {
     func reload(initial: Bool = false) async {
+        log("[probe] reload called, initial=\(initial), selection=\(listingSelection)")
         if listingSwitchInFlight {
             // a listing switch is mid-flight; cancelling it here would
             // strand the page on the old listing while the chip bar
@@ -318,6 +323,7 @@ extension SourceHomeContentView {
     }
 
     func loadHome() async {
+        log("[probe] loadHome called")
         await source.partialHomePublisher?.sink { @Sendable partialHome in
             Task { @MainActor in
                 withAnimation {
@@ -368,6 +374,7 @@ extension SourceHomeContentView {
     }
 
     func loadListing() async {
+        log("[probe] loadListing called, selection=\(listingSelection)")
         page = 1
         await loadEntries(initial: true)
     }
