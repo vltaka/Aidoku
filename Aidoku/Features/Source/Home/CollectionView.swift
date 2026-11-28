@@ -18,12 +18,17 @@ struct CollectionView: UIViewControllerRepresentable {
     // changes, the live collection view swaps its layout in place instead
     // of the whole view being recreated
     var layoutToken: AnyHashable?
+    // identifies the items themselves; when neither it nor the layout
+    // token changed, reloading would only reconfigure every visible cell
+    // for nothing, so the reload is skipped
+    var itemsToken: AnyHashable?
     let collectionViewController: UICollectionViewController
 
-    init(sections: [CollectionViewSection], layout: UICollectionViewCompositionalLayout, layoutToken: AnyHashable? = nil) {
+    init(sections: [CollectionViewSection], layout: UICollectionViewCompositionalLayout, layoutToken: AnyHashable? = nil, itemsToken: AnyHashable? = nil) {
         self.sections = sections
         self.layout = layout
         self.layoutToken = layoutToken
+        self.itemsToken = itemsToken
         self.collectionViewController = UICollectionViewController(collectionViewLayout: layout)
     }
 
@@ -57,7 +62,8 @@ struct CollectionView: UIViewControllerRepresentable {
     class Coordinator: NSObject, UICollectionViewDataSource {
         var parent: CollectionView
         private var appliedLayoutToken: AnyHashable?
-
+        private var appliedItemsToken: AnyHashable?
+        private var hasAppliedItems = false
         init(_ parent: CollectionView) {
             self.parent = parent
             self.appliedLayoutToken = parent.layoutToken
@@ -65,7 +71,6 @@ struct CollectionView: UIViewControllerRepresentable {
 
         private var pendingApplyViewController: UICollectionViewController?
         private var observingActivation = false
-
         func apply(to viewController: UICollectionViewController) {
             // Reloading while the app is inactive (app switcher, being
             // backgrounded) runs the layout against the switcher's
@@ -74,7 +79,6 @@ struct CollectionView: UIViewControllerRepresentable {
             // visible then anyway; hold the reload until the app is
             // active again and apply the latest data then.
             guard UIApplication.shared.applicationState == .active else {
-                log("[probe] collection update deferred while app not active")
                 pendingApplyViewController = viewController
                 if !observingActivation {
                     observingActivation = true
@@ -91,28 +95,43 @@ struct CollectionView: UIViewControllerRepresentable {
             // swap the layout in place when its parameters changed (e.g. the
             // cover height) instead of recreating the whole view, keeping
             // the scroll position
+            var layoutChanged = false
             if
                 let collectionView,
                 let token = parent.layoutToken,
                 token != appliedLayoutToken
             {
                 appliedLayoutToken = token
+                layoutChanged = true
                 let offset = collectionView.contentOffset
                 collectionView.setCollectionViewLayout(parent.layout, animated: false)
                 collectionView.contentOffset = offset
             }
+            // skip the reload when neither the layout nor the items
+            // changed: reconfiguring every visible cell anyway makes the
+            // cells flash (they fade back in) whenever something unrelated
+            // re-renders the parent, e.g. a sheet being presented
+            if
+                !layoutChanged,
+                let itemsToken = parent.itemsToken,
+                hasAppliedItems,
+                itemsToken == appliedItemsToken
+            {
+                return
+            }
+            appliedItemsToken = parent.itemsToken
+            hasAppliedItems = true
             collectionView?.reloadData()
         }
 
         @objc private func applicationDidBecomeActive() {
-            log("[probe] collection applying deferred update on become active")
             guard let viewController = pendingApplyViewController else { return }
             pendingApplyViewController = nil
             apply(to: viewController)
         }
 
         func numberOfSections(in collectionView: UICollectionView) -> Int {
-           parent.sections.count
+            parent.sections.count
         }
 
         func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
