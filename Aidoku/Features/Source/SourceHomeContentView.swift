@@ -480,7 +480,7 @@ struct SourceHomeContentView: View {
                 }
             }
             if pendingAnchorKey != nil {
-                log("[anchor] restore gave up", key, "listing", listingSelection)
+                log("[anchor] restore gave up", pendingKey ?? "nil", "listing", listingSelection)
                 pendingAnchorKey = nil
                 anchorWritesSuspended = false
             }
