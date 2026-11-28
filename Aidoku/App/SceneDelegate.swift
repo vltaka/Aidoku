@@ -62,14 +62,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }()
 
     func sceneWillEnterForeground(_ scene: UIScene) {
+        log("[probe] scene will enter foreground")
         contentHideView.removeFromSuperview()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
+        log("[probe] scene did become active")
         contentHideView.removeFromSuperview()
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
+        log("[probe] scene did enter background")
         if AppSettings.general.incognitoMode.get() {
             (scene as? UIWindowScene)?.windows.first?.addSubview(contentHideView)
         }
