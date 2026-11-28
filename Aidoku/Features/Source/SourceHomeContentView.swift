@@ -48,6 +48,11 @@ struct SourceHomeContentView: View {
     // reports the frames of wherever it restarted (the top), which must
     // not overwrite the remembered anchor before it can be restored
     @State private var anchorWritesSuspended = false
+    // a restore to this entry has been issued but not yet confirmed by
+    // the frame reports; while it is set, writes stay suspended and the
+    // frame reports drive the restore instead (see updateScrollAnchor)
+    @State private var pendingAnchorKey: String?
+    @State private var pendingAnchorAttempts = 0
     @State private var entriesWereEmpty = true
 
     @Environment(\.scenePhase) private var scenePhase
@@ -106,7 +111,7 @@ struct SourceHomeContentView: View {
                     await task.value
                 }
                 .onPreferenceChange(HomeItemFramesPreferenceKey.self) { frames in
-                    updateScrollAnchor(from: frames)
+                    updateScrollAnchor(from: frames, using: reader)
                 }
                 .onChange(of: loading) { isLoading in
                     if !isLoading {
@@ -130,11 +135,13 @@ struct SourceHomeContentView: View {
                             // tree was rebuilt while away, the scroll view
                             // restarted at the top with its content intact
                             // and no load ever fires — restore from the
-                            // remembered anchor now, then let frame
-                            // reports resume once the restore has landed
+                            // remembered anchor now. Frame reports stay
+                            // suspended until they confirm the restore
+                            // landed (see updateScrollAnchor); when there
+                            // is no anchor to restore there is nothing to
+                            // protect, so writes resume right away.
                             attemptScrollAnchorRestore(using: reader)
-                            Task {
-                                try? await Task.sleep(nanoseconds: 500_000_000)
+                            if pendingAnchorKey == nil {
                                 anchorWritesSuspended = false
                             }
                         case .inactive, .background:
@@ -148,36 +155,34 @@ struct SourceHomeContentView: View {
                 // immediately rather than having a slight delay
                 .onChange(of: headerListingSelection) { value in
                     listingSwitchInFlight = true
+                    // a pending restore belongs to the outgoing listing
+                    pendingAnchorKey = nil
+                    pendingAnchorAttempts = 0
                     loadListingTask?.cancel()
                     loadListingTask = Task {
                         defer { listingSwitchInFlight = false }
-                        withAnimation {
-                            error = nil
-                        }
-
-                        // todo: there's a slight delay here if we're already scrolled to the top
-                        await animate(duration: 0.2) {
-                            reader.scrollTo(0)
-                        }
+                        error = nil
 
                         if value != 0 || !source.features.providesHome {
-                            // load listing
-                            // Always set listing selection and pass the new value
-                            await animate(duration: 0.2, options: .easeOut) {
-                                listingSelection = value
-                                loading = true  // Show loading when switching
-                            }
+                            // load listing. The selection (and with it the
+                            // visible content) only flips inside loadEntries
+                            // at the moment the new listing's first page
+                            // lands, so the current page stays on screen
+                            // untouched until the swap — no staged scroll,
+                            // skeleton, or cross-fade in between.
                             await loadListing(setListingSelection: value)
+                            // the swap just landed at whatever scroll
+                            // offset the old page had; start at the top
+                            if !Task.isCancelled {
+                                reader.scrollTo(0)
+                            }
                         } else {
-                            // switch to home
-                            await animate(duration: 0.2, options: .easeOut) {
-                                loading = false
-                                entries = []
-                                listingHome = nil
-                            }
-                            withAnimation(.easeIn(duration: 0.2)) {
-                                listingSelection = value
-                            }
+                            // switch to home: its content is already in
+                            // memory, so this swap is instant too
+                            entries = []
+                            listingHome = nil
+                            listingSelection = value
+                            reader.scrollTo(0)
 
                             if home == nil {
                                 loading = true
@@ -321,14 +326,49 @@ struct SourceHomeContentView: View {
         .padding(.bottom)
     }
     /// Remember the entry currently sitting at the top of the scroll
-    /// view, from the item frames the grid reports.
-    private func updateScrollAnchor(from frames: [String: CGRect]) {
-        guard !anchorWritesSuspended else { return }
+    /// view, from the item frames the grid reports. While a restore is
+    /// pending the frames are only used to drive and confirm that
+    /// restore, never written down: the rebuilt scroll view sits at the
+    /// top, and writing its top entry would overwrite the very position
+    /// being restored, for good.
+    private func updateScrollAnchor(from frames: [String: CGRect], using reader: ScrollViewProxy) {
+        // while a listing switch is in flight the frames still come from
+        // the outgoing listing's content; writing them down under the new
+        // listing's key would poison its remembered position
+        guard !listingSwitchInFlight else { return }
         let visible = frames.filter { $0.value.maxY > 0 }
         guard let top = visible.min(by: { lhs, rhs in
             if lhs.value.minY != rhs.value.minY { return lhs.value.minY < rhs.value.minY }
             return lhs.key < rhs.key
         }) else { return }
+        if let pendingKey = pendingAnchorKey {
+            if top.key == pendingKey {
+                // the remembered entry is back at the top: the restore
+                // landed, so frame reports can be trusted again
+                pendingAnchorKey = nil
+                pendingAnchorAttempts = 0
+                anchorWritesSuspended = false
+            } else {
+                // not there yet. The target may still be materializing
+                // below the fold, so scroll again and keep writes off.
+                // Give up after a bounded number of tries so a restore
+                // that can never land (content changed underneath, the
+                // user took over scrolling) does not wedge position
+                // tracking for the rest of the session.
+                pendingAnchorAttempts += 1
+                if pendingAnchorAttempts > 30 {
+                    pendingAnchorKey = nil
+                    pendingAnchorAttempts = 0
+                    anchorWritesSuspended = false
+                } else {
+                    if entries.contains(where: { $0.key == pendingKey }) {
+                        reader.scrollTo(pendingKey, anchor: .top)
+                    }
+                    return
+                }
+            }
+        }
+        guard !anchorWritesSuspended else { return }
         HomeScrollAnchorStore.shared.setAnchor(
             sourceKey: source.key,
             listing: listingSelection,
@@ -344,7 +384,9 @@ struct SourceHomeContentView: View {
     /// every point where a restore could become possible (load finished,
     /// entries landed, app back in the foreground); it is a no-op while
     /// a listing switch is in flight, since switching listings is
-    /// supposed to land at the top.
+    /// supposed to land at the top. Issuing a restore also marks it
+    /// pending: anchor writes stay suspended until the frame reports
+    /// confirm the entry is back at the top (see updateScrollAnchor).
     private func attemptScrollAnchorRestore(using reader: ScrollViewProxy) {
         guard !listingSwitchInFlight else { return }
         guard listingSelection != 0 || !source.features.providesHome else { return }
@@ -352,10 +394,19 @@ struct SourceHomeContentView: View {
             let anchorKey = HomeScrollAnchorStore.shared.anchor(
                 sourceKey: source.key,
                 listing: listingSelection
-            ),
-            entries.contains(where: { $0.key == anchorKey })
+            )
         else { return }
-        reader.scrollTo(anchorKey, anchor: .top)
+        if pendingAnchorKey != anchorKey {
+            pendingAnchorKey = anchorKey
+            pendingAnchorAttempts = 0
+        }
+        anchorWritesSuspended = true
+        // the anchor may not be in the loaded entries yet (first page
+        // still in flight); the frame reports keep retrying the scroll
+        // once it materializes
+        if entries.contains(where: { $0.key == anchorKey }) {
+            reader.scrollTo(anchorKey, anchor: .top)
+        }
     }
 }
 
@@ -437,7 +488,9 @@ extension SourceHomeContentView {
 
     func loadListing(setListingSelection: Int? = nil) async {
         page = 1
-        listingHome = nil  // Clear previous listing home when loading new listing
+        // listingHome is intentionally not cleared here: the old
+        // listing's layout stays on screen until the new content lands
+        // and replaces it in loadEntries
         await loadEntries(initial: true, setListingSelection: setListingSelection)
     }
 
@@ -451,30 +504,21 @@ extension SourceHomeContentView {
             // Try to get Home-like layout first
             if initial {
                 if let home = try await source.getListingHome(listing: listing) {
-                    // Source provides custom Home-like layout for this listing
+                    // Source provides custom Home-like layout for this
+                    // listing. Everything swaps in one step now that the
+                    // content has landed: layout, entries, and selection.
                     listingHome = home
-
-                    // fade out existing items and show new Home-like layout
-                    await animate(duration: 0.2, options: .easeOut) {
-                        entries = []
-                    }
-
-                    // switch the listing selection, if specified
+                    entries = []
                     if let setListingSelection {
-                        await animate(duration: 0.1, options: .easeInOut) {
-                            listingSelection = setListingSelection
-                        }
+                        listingSelection = setListingSelection
                     }
-
-                    await animate(duration: 0.2, options: .easeIn) {
-                        loading = false
-                    }
+                    loading = false
 
                     listingLoadState = .allLoaded
                     return
                 } else {
-                    // No custom layout, use default pagination
-                    listingHome = nil
+                    // No custom layout, use default pagination; any old
+                    // listingHome is cleared when the results land below
                 }
             } else if listingHome != nil {
                 // If we have a listing home (Home-like layout), we shouldn't paginate
@@ -482,37 +526,14 @@ extension SourceHomeContentView {
                 return
             }
 
-            var resultsLoaded = false
-
-            // start loading listing items
+            // start loading listing items. The current content is left
+            // completely untouched while this is in flight; the swap
+            // happens in one step when the results land below.
             let resultTask = Task {
-                let result = try await source.getMangaList(listing: listing, page: page)
-                resultsLoaded = true
-                return result
+                try await source.getMangaList(listing: listing, page: page)
             }
 
             hasMore = false
-
-            // fade out existing items
-            if initial && !entries.isEmpty {
-                await animate(duration: 0.2, options: .easeOut) {
-                    entries = []
-                }
-            }
-
-            // switch the listing selection, if specified
-            if let setListingSelection {
-                await animate(duration: 0.1, options: .easeInOut) {
-                    listingSelection = setListingSelection
-                }
-            }
-
-            // show loading view if results aren't done loading yet after animations
-            if initial, !resultsLoaded {
-                await animate(duration: 0.2, options: .easeIn) {
-                    loading = true
-                }
-            }
 
             // load new results
             let result = try await resultTask.value
@@ -536,18 +557,20 @@ extension SourceHomeContentView {
             }
             bookmarkedItems.formUnion(bookmarkedKeys)
 
-            // hide loading view
-            if loading {
-                await animate(duration: 0.2, options: .easeIn) {
-                    loading = false
-                }
-            }
+            // hide loading view (only ever shown when there was no
+            // previous content to keep on screen)
+            loading = false
 
             guard !Task.isCancelled else { return }
 
             if initial {
-                withAnimation(.easeIn(duration: 0.2)) {
-                    entries = result.entries
+                // the one-step swap: new entries and, for a listing
+                // switch, the new selection land together, unanimated,
+                // so no skeleton, ghost, or old/new overlap ever renders
+                listingHome = nil
+                entries = result.entries
+                if let setListingSelection {
+                    listingSelection = setListingSelection
                 }
             } else {
                 // append to existing entries
@@ -558,6 +581,12 @@ extension SourceHomeContentView {
         } catch {
             guard !Task.isCancelled else { return }
 
+            // if this was a listing switch, still land on the tapped
+            // listing so the page identity matches the chip bar and the
+            // error view's retry targets the right listing
+            if let setListingSelection {
+                listingSelection = setListingSelection
+            }
             loading = false
             withAnimation {
                 self.error = error
