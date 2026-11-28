@@ -226,8 +226,13 @@ class NewSourceViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        log("[probe] SourceVC viewDidLoad")
         configure()
         constrain()
+    }
+
+    deinit {
+        log("[probe] SourceVC deinit")
     }
 
     func configure() {
@@ -376,6 +381,7 @@ class NewSourceViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        log("[probe] SourceVC viewWillAppear")
 
         // save original navbar appearance
         if originalNavbarAppearance == nil, let navigationBar = navigationController?.navigationBar {
@@ -579,6 +585,7 @@ extension NewSourceViewController {
     // refresh views in hosting controllers to update bindings
     // (basically a substitute for swiftui state reactivity)
     private func updateHostingControllers() {
+        log("[probe] SourceVC updateHostingControllers")
         searchFilterController.rootView = searchFilterHeaderView
         listingHeaderController.rootView = listingsHeaderView
         mainHostingController.rootView = mainView
