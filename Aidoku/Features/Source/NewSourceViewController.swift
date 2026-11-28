@@ -189,7 +189,7 @@ class NewSourceViewController: UIViewController {
         searchFilterController.view.translatesAutoresizingMaskIntoConstraints = false
         return searchFilterController
     }()
-    private lazy var listingsHeaderController = UIHostingController(rootView: listingsHeaderView)
+    private lazy var listingHeaderController = UIHostingController(rootView: listingsHeaderView)
     private lazy var mainHostingController = UIHostingController(rootView: mainView)
     private lazy var importHostingController = UIHostingController(rootView: importFileView)
 
@@ -220,7 +220,7 @@ class NewSourceViewController: UIViewController {
 
     isolated deinit {
         // if it isn't removed, an old search bar can potentially block pressing the filter
-// header buttons in a newer source view controller for some reason
+        // header buttons in a newer source view controller for some reason
         searchController.searchBar.removeFromSuperview()
     }
 
@@ -278,6 +278,7 @@ class NewSourceViewController: UIViewController {
         searchController.searchBar.scopeButtonTitles = [""]
         searchController.searchBar.scopeBarBackgroundImage = nil
         (searchController.searchBar.value(forKey: "_scopeBar") as? UIView)?.isHidden = true
+
         if
             let containerView = searchController.searchBar.value(forKey: "_scopeBarContainerView") as? UIView,
             !containerView.subviews.contains(where: { String(describing: $0.classForCoder).contains("UIHostingView") })
@@ -296,12 +297,12 @@ class NewSourceViewController: UIViewController {
         // replace search bar view with listings header view
         if !onlySearch {
             if source.hasListings {
-                listingsHeaderController.view.backgroundColor = .clear
-                listingsHeaderController.view.clipsToBounds = false
-                searchBar.addSubview(listingsHeaderController.view)
+                listingHeaderController.view.backgroundColor = .clear
+                listingHeaderController.view.clipsToBounds = false
+                searchBar.addSubview(listingHeaderController.view)
 
                 // this superview keeps setting clipsToBounds to true, which messes up the shadow on ios 26
-                listingsHeaderController.view.superview?.forceNoClip()
+                listingHeaderController.view.superview?.forceNoClip()
             } else {
                 navigationItem.searchController = nil
             }
@@ -351,15 +352,16 @@ class NewSourceViewController: UIViewController {
 
         if !onlySearch {
             mainHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+
             if source.hasListings {
                 let searchBar = searchController.searchBar
-                listingsHeaderController.view.translatesAutoresizingMaskIntoConstraints = false
+                listingHeaderController.view.translatesAutoresizingMaskIntoConstraints = false
 
                 NSLayoutConstraint.activate([
-                    listingsHeaderController.view.topAnchor.constraint(equalTo: searchBar.topAnchor),
-                    listingsHeaderController.view.bottomAnchor.constraint(equalTo: searchBar.bottomAnchor),
-                    listingsHeaderController.view.leadingAnchor.constraint(equalTo: searchBar.safeAreaLayoutGuide.leadingAnchor),
-                    listingsHeaderController.view.trailingAnchor.constraint(equalTo: searchBar.safeAreaLayoutGuide.trailingAnchor)
+                    listingHeaderController.view.topAnchor.constraint(equalTo: searchBar.topAnchor),
+                    listingHeaderController.view.bottomAnchor.constraint(equalTo: searchBar.bottomAnchor),
+                    listingHeaderController.view.leadingAnchor.constraint(equalTo: searchBar.safeAreaLayoutGuide.leadingAnchor),
+                    listingHeaderController.view.trailingAnchor.constraint(equalTo: searchBar.safeAreaLayoutGuide.trailingAnchor)
                 ])
             }
 
@@ -416,7 +418,7 @@ extension NewSourceViewController {
         setSearchBarHidden(false)
 
         // hide listing selector
-        listingsHeaderController.view.isHidden = true
+        listingHeaderController.view.isHidden = true
 
         // show scope bar (for filters header)
         // shifts main scroll view down slightly to improve animation
@@ -489,6 +491,7 @@ extension NewSourceViewController {
 
         // scroll view frame changes automatically, so make sure it doesn't clip in the wrong place
         searchViewController.view.clipsToBounds = false
+
         // use mask to clip scroll view so it doesn't cover tab bar
         let maskLayer = CAShapeLayer()
         let path = UIBezierPath(rect: CGRect(
@@ -520,7 +523,8 @@ extension NewSourceViewController {
             self.setSearchBarHidden(true)
 
             // show listings header
-            self.listingsHeaderController.view.isHidden = false
+            self.listingHeaderController.view.isHidden = false
+
             // hide search filters
             self.searchFilterController.view.alpha = 0
 
@@ -576,7 +580,7 @@ extension NewSourceViewController {
     // (basically a substitute for swiftui state reactivity)
     private func updateHostingControllers() {
         searchFilterController.rootView = searchFilterHeaderView
-        listingsHeaderController.rootView = listingsHeaderView
+        listingHeaderController.rootView = listingsHeaderView
         mainHostingController.rootView = mainView
     }
 
@@ -599,6 +603,7 @@ extension NewSourceViewController {
             )
             let navigationController = UINavigationController(rootViewController: hostingController)
             navigationController.navigationBar.prefersLargeTitles = true
+
             // update navigation coordinator
             coordinator.rootViewController = hostingController
 
@@ -619,7 +624,7 @@ extension NewSourceViewController {
                         preferredStyle: .alert
                     )
                     alert.addAction(UIAlertAction(title: NSLocalizedString("OK"), style: .cancel) { _ in })
-                    alert.view.tintColor = self.view.tintColor // uikit bug ;)
+                    alert.view.tintColor = self.view.tintColor // uikit bug :)
                     self.present(alert, animated: true, completion: nil)
                     return
                 }
