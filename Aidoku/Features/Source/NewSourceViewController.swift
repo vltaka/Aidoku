@@ -232,6 +232,11 @@ class NewSourceViewController: UIViewController {
 
     func configure() {
         title = source.name
+        // Never use the large title on the source home page: its collapse
+        // animation hitches because the search bar (with the listings
+        // header embedded in it) and the home content's safe area all
+        // have to relayout in the same moment.
+        navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = .systemBackground
 
         loadNavbarButtons()
