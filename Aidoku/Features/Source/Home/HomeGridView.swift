@@ -15,6 +15,7 @@ struct HomeGridView: View {
     @Binding var bookmarkedItems: Set<String>
     var loadMore: (() async -> Void)?
     var onSelect: ((AidokuRunner.Manga) -> Void)?
+    var onItemVisibilityChange: ((String, Bool) -> Void)?
 
     @State private var loadingMore = false
     @State private var columns: [GridItem]
@@ -31,6 +32,7 @@ struct HomeGridView: View {
         entries: [AidokuRunner.Manga],
         containerWidth: CGFloat,
         bookmarkedItems: Binding<Set<String>> = .constant([]),
+        onItemVisibilityChange: ((String, Bool) -> Void)? = nil,
         loadMore: (() async -> Void)? = nil,
         onSelect: ((AidokuRunner.Manga) -> Void)? = nil
     ) {
@@ -40,6 +42,7 @@ struct HomeGridView: View {
         self._bookmarkedItems = bookmarkedItems
         self.loadMore = loadMore
         self.onSelect = onSelect
+        self.onItemVisibilityChange = onItemVisibilityChange
         self._columns = State(initialValue: Self.getColumns(itemsPerRow: 1))
     }
 
@@ -218,6 +221,8 @@ struct HomeGridView: View {
         }
         .id(entry.key)
         .modifier(HomeItemFrameReporter(itemKey: entry.key))
+        .onAppear { onItemVisibilityChange?(entry.key, true) }
+        .onDisappear { onItemVisibilityChange?(entry.key, false) }
     }
 
     private func mangaGridItem(entry: AidokuRunner.Manga) -> some View {
@@ -281,6 +286,8 @@ struct HomeGridView: View {
         }
         .id(entry.key)
         .modifier(HomeItemFrameReporter(itemKey: entry.key))
+        .onAppear { onItemVisibilityChange?(entry.key, true) }
+        .onDisappear { onItemVisibilityChange?(entry.key, false) }
     }
 
     @ContentBuilder
