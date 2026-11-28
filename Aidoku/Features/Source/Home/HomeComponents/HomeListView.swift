@@ -55,6 +55,7 @@ struct HomeListView: View {
     @State private var loadedBookmarks: Bool
     @State private var coverHeight: CGFloat = 100
     @State private var coverFit: Bool = false
+    @State private var titleCellSize: CGFloat = 19
 
     @EnvironmentObject private var path: NavigationCoordinator
 
@@ -90,6 +91,24 @@ struct HomeListView: View {
         self.listing = listing
         self._coverHeight = State(initialValue: CGFloat(AppSettings.appearance.listCoverHeight.get()))
         self._coverFit = State(initialValue: AppSettings.appearance.listCoverFit.get())
+        self._titleCellSize = State(initialValue: CGFloat(AppSettings.appearance.verticalTitleSize.get()))
+    }
+
+    // fingerprint of everything the cells display, so the collection
+    // view can skip reloading when nothing actually changed
+    private var itemsToken: Int {
+        var hasher = Hasher()
+        for identity in homeEntryIdentities(entries) {
+            hasher.combine(identity)
+        }
+        hasher.combine(coverHeight)
+        hasher.combine(coverFit)
+        hasher.combine(titleCellSize)
+        let bookmarks = usesBookmarksState ? bookmarkedItemsState : bookmarkedItems
+        for key in bookmarks.sorted() {
+            hasher.combine(key)
+        }
+        return hasher.finalize()
     }
 
     var body: some View {
@@ -132,7 +151,8 @@ struct HomeListView: View {
                             layout: UICollectionViewCompositionalLayout { _, layoutEnvironment in
                                 getSection(layoutEnvironment)
                             },
-                            layoutToken: coverHeight
+                            layoutToken: coverHeight,
+                            itemsToken: itemsToken
                         )
                         .frame(height: height)
                     } else {
@@ -170,6 +190,9 @@ struct HomeListView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.listCoverFit.key))) { _ in
             coverFit = AppSettings.appearance.listCoverFit.get()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init(AppSettings.appearance.verticalTitleSize.key))) { _ in
+            titleCellSize = CGFloat(AppSettings.appearance.verticalTitleSize.get())
         }
     }
 
@@ -211,7 +234,7 @@ struct HomeListView: View {
             // bottom — one reserved line each, so with no tags the
             // title simply gets that line's height too
             let titleStack = VStack(alignment: .leading, spacing: 4) {
-                VerticalTitleView(text: entry.title)
+                VerticalTitleView(text: entry.title, cellSize: titleCellSize)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 if let subtitle = entry.subtitle {
@@ -249,6 +272,10 @@ struct HomeListView: View {
                     }
                 }
             }
+            // claim the item's leftover width for the text column: without
+            // this the stack collapses to its contents' ideal size (about
+            // one title column) and the rest of the item stays empty
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: coverHeight)
 
             if ranking {
@@ -256,7 +283,6 @@ struct HomeListView: View {
                     Text("\(position + 1)")
                         .bold()
                         .padding(.horizontal, 2)
-
                     titleStack
                 }
             } else {
@@ -356,10 +382,13 @@ struct HomeListView: View {
 /// ellipsis.
 private struct VerticalTitleView: View {
     let text: String
+    // one cell, sized tight to the glyphs; adjustable on its own via the
+    // vertical title size setting (default 19, matching the body font
+    // the list titles used before)
+    var cellSize: CGFloat = 19
 
-    // one cell, sized tight to the body font the list titles use
-    private let cellWidth: CGFloat = 19
-    private let cellHeight: CGFloat = 19
+    private var cellWidth: CGFloat { cellSize }
+    private var cellHeight: CGFloat { cellSize }
 
     /// One vertical cell: either a single full-width character, or a
     /// short run of half-width characters set horizontally in the cell.
@@ -390,12 +419,13 @@ private struct VerticalTitleView: View {
     private func cellView(_ cell: Cell) -> some View {
         if cell.isRun {
             Text(cell.text)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: cellSize * 0.58, weight: .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .frame(width: cellWidth, height: cellHeight)
         } else {
             Text(cell.text)
+                .font(.system(size: cellSize - 2))
                 .frame(width: cellWidth, height: cellHeight)
         }
     }
