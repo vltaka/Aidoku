@@ -17,7 +17,8 @@ struct AppearanceSettings: Sendable {
             customLandscapeRows,
             listCoverHeight,
             scrollerCoverHeight,
-            listCoverFit
+            listCoverFit,
+            verticalTitleSize
         ]
     }
 
@@ -32,4 +33,6 @@ struct AppearanceSettings: Sendable {
     let scrollerCoverHeight = SettingsKey<Double>("Appearance.scrollerCoverHeight", default: 180)
     // when true, home ranking list covers are shown in full (aspect fit) instead of cropped (aspect fill)
     let listCoverFit = SettingsKey<Bool>("Appearance.listCoverFit", default: false)
+    // cell size (and with it the glyph size) of the vertical titles in home ranking lists
+    let verticalTitleSize = SettingsKey<Double>("Appearance.verticalTitleSize", default: 19)
 }
