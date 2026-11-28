@@ -17,6 +17,12 @@ struct HomeGridView: View {
     var onSelect: ((AidokuRunner.Manga) -> Void)?
 
     @State private var loadingMore = false
+    // the width the layout is actually computed from. it only follows
+    // containerWidth while the app is active: in the app switcher the
+    // system reports a transient size/orientation for this window, and
+    // laying out at that size rebuilds the grid and drops the scroll
+    // position before the user even comes back
+    @State private var layoutWidth: CGFloat
     @State private var columns: [GridItem]
     @State private var itemsPerRow: Int = 1
     @State private var isWaterfall = false
@@ -37,6 +43,7 @@ struct HomeGridView: View {
         self.source = source
         self.entries = entries
         self.containerWidth = containerWidth
+        self._layoutWidth = State(initialValue: containerWidth)
         self._bookmarkedItems = bookmarkedItems
         self.loadMore = loadMore
         self.onSelect = onSelect
@@ -81,11 +88,17 @@ struct HomeGridView: View {
             loadingMore = false
         }
         .onChange(of: containerWidth) { width in
-            updateItemsPerRow(width: width)
+            guard UIApplication.shared.applicationState == .active else {
+                log("[probe] containerWidth change to \(width) ignored while app not active")
+                return
+            }
+            layoutWidth = width
+            updateItemsPerRow()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             log("[probe] grid didBecomeActive, updating items per row")
             // fixes bug where item per row is incorrect when closing and opening app
+            layoutWidth = containerWidth
             updateItemsPerRow()
         }
         .onReceive(NotificationCenter.default.publisher(for: .orientationDidChange)) { _ in
@@ -110,7 +123,7 @@ struct HomeGridView: View {
         let horizontalPadding: CGFloat = 16
         let itemWidth = max(
             0,
-            (containerWidth - horizontalPadding * 2 - CGFloat(columnCount - 1) * Self.spacing) / CGFloat(columnCount)
+            (layoutWidth - horizontalPadding * 2 - CGFloat(columnCount - 1) * Self.spacing) / CGFloat(columnCount)
         )
         // freeze the distribution (and the ratios it assumed) for a given
         // set of entries, so covers never change places once shown. the
@@ -298,10 +311,16 @@ struct HomeGridView: View {
     }
 
     func updateItemsPerRow(width: CGFloat? = nil) {
+        // never relayout while the app isn't active (see layoutWidth);
+        // the didBecomeActive handler re-runs this with the real size
+        guard UIApplication.shared.applicationState == .active else {
+            log("[probe] updateItemsPerRow skipped while app not active")
+            return
+        }
         let layout = AppSettings.appearance.layout.get()
         let newIsWaterfall = layout == .waterfall
         let landscape = Self.isLandscape
-        let effectiveWidth = width ?? containerWidth
+        let effectiveWidth = width ?? layoutWidth
         let newItemsPerRow = OldMangaCollectionViewController.getGridItemsPerRow(
             containerWidth: effectiveWidth,
             isLandscape: landscape,
