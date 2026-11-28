@@ -59,11 +59,13 @@ final class ListingMangaCollectionViewController: MangaCollectionViewController 
     override func configure() {
         super.configure()
         // the parent only shows this controller once content has
-        // landed, so its skeleton is removed outright rather than
-        // faded (a fade would flash the skeleton over the real grid
-        // on every listing switch)
-        skeletonViewController.view.removeFromSuperview()
-        skeletonViewController.removeFromParent()
+        // landed, so its skeleton is hidden in place. It must not be
+        // removed from the hierarchy here: constrain() runs right
+        // after configure() and activates constraints between the
+        // skeleton's view and this view, which is invalid (and
+        // crashes) once the skeleton has no common ancestor with them
+        skeletonViewController.view.alpha = 0
+        skeletonViewController.view.isHidden = true
         // the base controller's refresh control only ends its own
         // animation; swap in one that actually reloads the listing
         collectionView.refreshControl = nil
