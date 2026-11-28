@@ -71,6 +71,7 @@ struct SourceImageView: View {
             }
     }
 
+    @ViewBuilder
     private var content: some View {
         // if this view already showed the cover, draw the pinned image
         // synchronously; otherwise fall back to the shared memory cache so
