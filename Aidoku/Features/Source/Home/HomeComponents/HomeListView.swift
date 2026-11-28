@@ -340,28 +340,44 @@ struct HomeListView: View {
 /// flow left to right, so a long title uses the full height of the
 /// narrow column beside a list cover instead of being cut off after
 /// two horizontal lines. SwiftUI has no vertical typesetting, so the
-/// title is chunked into single-character cells by hand; latin letters
-/// and digits stack one per cell, like a vertical sign. Whatever does
-/// not fit in the available columns ends with an ellipsis.
+/// title is set by hand following how vertical Japanese text is
+/// actually composed:
+/// - cells are sized tight to the glyph (a full-width character plus
+///   a point or two of air), not padded out, so the column does not
+///   look hollow;
+/// - spaces are dropped — vertical text is not set with spaces, and
+///   every space used to eat a whole cell and leave a hole;
+/// - a short run of half-width letters or digits shares one cell set
+///   horizontally (tate-chu-yoko), instead of one cell per letter:
+///   "2T" or "STUDIO" stacked letter by letter wastes the column and
+///   reads badly, and the wasted cells were part of why titles ran
+///   out of room and got cut.
+/// Whatever still does not fit in the available columns ends with an
+/// ellipsis.
 private struct VerticalTitleView: View {
     let text: String
 
-    // one character cell, sized for the default body font the list
-    // titles use: a full-width glyph plus a little air
-    private let cellWidth: CGFloat = 20
-    private let cellHeight: CGFloat = 22
+    // one cell, sized tight to the body font the list titles use
+    private let cellWidth: CGFloat = 19
+    private let cellHeight: CGFloat = 19
+
+    /// One vertical cell: either a single full-width character, or a
+    /// short run of half-width characters set horizontally in the cell.
+    private struct Cell {
+        let text: String
+        let isRun: Bool
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let charsPerColumn = max(1, Int(geometry.size.height / cellHeight))
+            let cellsPerColumn = max(1, Int(geometry.size.height / cellHeight))
             let maxColumns = max(1, Int(geometry.size.width / cellWidth))
-            let columns = makeColumns(charsPerColumn: charsPerColumn, maxColumns: maxColumns)
+            let columns = makeColumns(cellsPerColumn: cellsPerColumn, maxColumns: maxColumns)
             HStack(alignment: .top, spacing: 0) {
                 ForEach(columns.indices, id: \.self) { columnIndex in
                     VStack(spacing: 0) {
-                        ForEach(columns[columnIndex].indices, id: \.self) { charIndex in
-                            Text(columns[columnIndex][charIndex])
-                                .frame(width: cellWidth, height: cellHeight)
+                        ForEach(columns[columnIndex].indices, id: \.self) { cellIndex in
+                            cellView(columns[columnIndex][cellIndex])
                         }
                     }
                 }
@@ -370,17 +386,63 @@ private struct VerticalTitleView: View {
         }
     }
 
-    private func makeColumns(charsPerColumn: Int, maxColumns: Int) -> [[String]] {
-        let chars = text.filter { $0 != "\n" }.map(String.init)
-        var columns: [[String]] = []
+    @ViewBuilder
+    private func cellView(_ cell: Cell) -> some View {
+        if cell.isRun {
+            Text(cell.text)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .frame(width: cellWidth, height: cellHeight)
+        } else {
+            Text(cell.text)
+                .frame(width: cellWidth, height: cellHeight)
+        }
+    }
+
+    /// Split the title into cells: spaces dropped, half-width letter /
+    /// digit runs grouped into chunks of up to four per cell, every
+    /// other character one cell of its own.
+    private func makeCells() -> [Cell] {
+        var cells: [Cell] = []
+        var run = ""
+        func flushRun() {
+            guard !run.isEmpty else { return }
+            var rest = run
+            while !rest.isEmpty {
+                let chunk = String(rest.prefix(4))
+                cells.append(Cell(text: chunk, isRun: true))
+                rest = String(rest.dropFirst(chunk.count))
+            }
+            run = ""
+        }
+        for character in text {
+            if character == " " || character == "　" || character == "\n" {
+                flushRun()
+                continue
+            }
+            if character.isASCII, character.isLetter || character.isNumber || character == "+" || character == "-" {
+                run.append(character)
+            } else {
+                flushRun()
+                cells.append(Cell(text: String(character), isRun: false))
+            }
+        }
+        flushRun()
+        return cells
+    }
+
+    private func makeColumns(cellsPerColumn: Int, maxColumns: Int) -> [[Cell]] {
+        let cells = makeCells()
+        var columns: [[Cell]] = []
         var index = 0
-        while index < chars.count && columns.count < maxColumns {
-            let end = min(index + charsPerColumn, chars.count)
-            var column = Array(chars[index..<end])
-            if end < chars.count && columns.count == maxColumns - 1 && column.count > 1 {
+        while index < cells.count && columns.count < maxColumns {
+            let end = min(index + cellsPerColumn, cells.count)
+            var column = Array(cells[index..<end])
+            if end < cells.count && columns.count == maxColumns - 1 && column.count > 1 {
                 // more text than fits: mark the cut at the end of the
                 // last visible column
-                column[column.count - 1] = "…"
+                column[column.count - 1] = Cell(text: "…", isRun: false)
             }
             columns.append(column)
             index = end
