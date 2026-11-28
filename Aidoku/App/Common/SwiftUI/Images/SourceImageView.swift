@@ -49,6 +49,29 @@ struct SourceImageView: View {
     }
 
     var body: some View {
+        content
+            .onChange(of: imageUrl) { newValue in
+                // This reset lives on the whole view, not on the lazy
+                // image: when a view instance is reused for another
+                // manga while it is showing its pinned cover (or a
+                // cached one), the lazy image is not in the tree at
+                // all, so a reset attached there never runs. The stale
+                // request then stays in charge and keeps painting the
+                // previous manga's cover under the new title for good —
+                // which is exactly how covers ended up wrong in the
+                // paged home lists, whose hosting cells reuse views
+                // while they sit on the pinned branch.
+                imageRequest = nil
+                imageRequestUrl = nil
+                pinnedImage = nil
+                pinnedImageUrl = nil
+                Task {
+                    await loadImageRequest(url: newValue)
+                }
+            }
+    }
+
+    private var content: some View {
         // if this view already showed the cover, draw the pinned image
         // synchronously; otherwise fall back to the shared memory cache so
         // a recreated view doesn't flash the placeholder either. The pin
@@ -77,7 +100,14 @@ struct SourceImageView: View {
     /// hop is what made already-loaded covers flash the placeholder when
     /// scrolling back).
     private var effectiveRequest: ImageRequest? {
-        imageRequest ?? CoverRequestCache.shared.request(sourceKey: source?.key, url: imageUrl)
+        // a request built for a different url (left in this view's state
+        // by a previous manga it was reused for) must never be served:
+        // it would paint that manga's cover here. Only the shared cache,
+        // which is keyed by the current url, is a safe fallback.
+        if let imageRequest, imageRequestUrl == imageUrl {
+            return imageRequest
+        }
+        return CoverRequestCache.shared.request(sourceKey: source?.key, url: imageUrl)
     }
 
     private var lazyImage: some View {
@@ -134,18 +164,15 @@ struct SourceImageView: View {
         }
         .processors(processors)
         .onAppear {
+            // a request left over from a previous url this view was
+            // reused for must not block loading the cover it shows now
+            if imageRequest != nil, imageRequestUrl != imageUrl {
+                imageRequest = nil
+                imageRequestUrl = nil
+            }
             guard imageRequest == nil, effectiveRequest == nil else { return }
             Task {
                 await loadImageRequest(url: imageUrl)
-            }
-        }
-        .onChange(of: imageUrl) { newValue in
-            imageRequest = nil
-            imageRequestUrl = nil
-            pinnedImage = nil
-            pinnedImageUrl = nil
-            Task {
-                await loadImageRequest(url: newValue)
             }
         }
     }
