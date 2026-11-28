@@ -211,12 +211,13 @@ struct SourceHomeContentView: View {
                                 source: source,
                                 entries: entries,
                                 containerWidth: containerWidth,
-                                bookmarkedItems: $bookmarkedItems
-                            ) {
-                                if hasMore && listingLoadState != .loading {
-                                    await loadEntries()
+                                bookmarkedItems: $bookmarkedItems,
+                                loadMore: {
+                                    if hasMore && listingLoadState != .loading {
+                                        await loadEntries()
+                                    }
                                 }
-                            }
+                            )
                             .id(listingSelection) // Force recreation on listing change
                         case .list:
                             HomeListView(
