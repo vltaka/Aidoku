@@ -299,12 +299,22 @@ struct HomeGridView: View {
 
     func updateItemsPerRow(width: CGFloat? = nil) {
         let layout = AppSettings.appearance.layout.get()
-        isWaterfall = layout == .waterfall
-        itemsPerRow = OldMangaCollectionViewController.getGridItemsPerRow(
-            containerWidth: width ?? containerWidth,
-            isLandscape: Self.isLandscape,
+        let newIsWaterfall = layout == .waterfall
+        let landscape = Self.isLandscape
+        let effectiveWidth = width ?? containerWidth
+        let newItemsPerRow = OldMangaCollectionViewController.getGridItemsPerRow(
+            containerWidth: effectiveWidth,
+            isLandscape: landscape,
             layout: layout
         )
+        log("[probe] updateItemsPerRow: \(itemsPerRow)/\(isWaterfall) -> \(newItemsPerRow)/\(newIsWaterfall), width=\(effectiveWidth), landscape=\(landscape)")
+        // only touch the state when the result actually changed: assigning
+        // the same values still invalidates the view, and a grid rebuilt
+        // for no reason makes the scroll view drop its position (the page
+        // lands back at the top after returning from the background)
+        guard newItemsPerRow != itemsPerRow || newIsWaterfall != isWaterfall else { return }
+        isWaterfall = newIsWaterfall
+        itemsPerRow = newItemsPerRow
     }
 
     static func placeholder(width: CGFloat, availableWidth: CGFloat? = nil) -> some View {
