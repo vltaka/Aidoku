@@ -191,24 +191,27 @@ struct SourceHomeContentView: View {
                             // the new listing's skeleton or its own
                             // content can appear in between. (This is
                             // the original app's switch shape, minus its
-                            // staged waits.)
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                listingSelection = value
-                                entries = []
-                                listingHome = nil
-                                loading = true
-                            }
+                            // staged waits.) The flip itself is NOT
+                            // animated: animating the state change makes
+                            // SwiftUI cross-fade the outgoing and
+                            // incoming content, so the two listings show
+                            // through each other. The short fade belongs
+                            // only to the moment the new data lands.
+                            listingSelection = value
+                            entries = []
+                            listingHome = nil
+                            loading = true
                             reader.scrollTo(0)
                             await loadListing()
                         } else {
                             // switch to home: its content is already in
-                            // memory, so this swap lands immediately too,
-                            // with the same short fade as a listing swap
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                entries = []
-                                listingHome = nil
-                                listingSelection = value
-                            }
+                            // memory, so this swap lands immediately too.
+                            // Not animated either (see above): the two
+                            // pages must never cross-fade through each
+                            // other.
+                            entries = []
+                            listingHome = nil
+                            listingSelection = value
                             reader.scrollTo(0)
 
                             if home == nil {
