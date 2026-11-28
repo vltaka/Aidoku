@@ -52,7 +52,10 @@ struct SourceHomeContentView: View {
     // the frame reports; while it is set, writes stay suspended and the
     // frame reports drive the restore instead (see updateScrollAnchor)
     @State private var pendingAnchorKey: String?
-    @State private var pendingAnchorAttempts = 0
+    @State private var anchorRestoreTask: Task<Void, Never>?
+    // latest item frames reported by the grid, kept so the anchor
+    // restore loop can tell which entries are realized right now
+    @State private var latestItemFrames: [String: CGRect] = [:]
     @State private var entriesWereEmpty = true
 
     @Environment(\.scenePhase) private var scenePhase
@@ -111,6 +114,7 @@ struct SourceHomeContentView: View {
                     await task.value
                 }
                 .onPreferenceChange(HomeItemFramesPreferenceKey.self) { frames in
+                    latestItemFrames = frames
                     updateScrollAnchor(from: frames, using: reader)
                 }
                 .onChange(of: loading) { isLoading in
@@ -146,6 +150,7 @@ struct SourceHomeContentView: View {
                             }
                         case .inactive, .background:
                             anchorWritesSuspended = true
+                            anchorRestoreTask?.cancel()
                         default:
                             break
                     }
@@ -157,7 +162,7 @@ struct SourceHomeContentView: View {
                     listingSwitchInFlight = true
                     // a pending restore belongs to the outgoing listing
                     pendingAnchorKey = nil
-                    pendingAnchorAttempts = 0
+                    anchorRestoreTask?.cancel()
                     loadListingTask?.cancel()
                     loadListingTask = Task {
                         defer { listingSwitchInFlight = false }
@@ -178,10 +183,13 @@ struct SourceHomeContentView: View {
                             }
                         } else {
                             // switch to home: its content is already in
-                            // memory, so this swap is instant too
-                            entries = []
-                            listingHome = nil
-                            listingSelection = value
+                            // memory, so this swap lands immediately too,
+                            // with the same short fade as a listing swap
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                entries = []
+                                listingHome = nil
+                                listingSelection = value
+                            }
                             reader.scrollTo(0)
 
                             if home == nil {
@@ -262,6 +270,7 @@ struct SourceHomeContentView: View {
                                     await loadEntries()
                                 }
                             }
+                            .id(listingSelection) // Force recreation on listing change
                         case .list:
                             HomeListView(
                                 source: source,
@@ -346,26 +355,13 @@ struct SourceHomeContentView: View {
                 // the remembered entry is back at the top: the restore
                 // landed, so frame reports can be trusted again
                 pendingAnchorKey = nil
-                pendingAnchorAttempts = 0
+                anchorRestoreTask?.cancel()
                 anchorWritesSuspended = false
             } else {
-                // not there yet. The target may still be materializing
-                // below the fold, so scroll again and keep writes off.
-                // Give up after a bounded number of tries so a restore
-                // that can never land (content changed underneath, the
-                // user took over scrolling) does not wedge position
-                // tracking for the rest of the session.
-                pendingAnchorAttempts += 1
-                if pendingAnchorAttempts > 30 {
-                    pendingAnchorKey = nil
-                    pendingAnchorAttempts = 0
-                    anchorWritesSuspended = false
-                } else {
-                    if entries.contains(where: { $0.key == pendingKey }) {
-                        reader.scrollTo(pendingKey, anchor: .top)
-                    }
-                    return
-                }
+                // not there yet: the restore loop keeps relaying the
+                // scroll toward it; these frames must not be written
+                // down as the position in the meantime
+                return
             }
         }
         guard !anchorWritesSuspended else { return }
@@ -398,21 +394,64 @@ struct SourceHomeContentView: View {
         else { return }
         if pendingAnchorKey != anchorKey {
             pendingAnchorKey = anchorKey
-            pendingAnchorAttempts = 0
         }
         anchorWritesSuspended = true
-        // the anchor may not be in the loaded entries yet (first page
-        // still in flight); the frame reports keep retrying the scroll
-        // once it materializes
         if entries.contains(where: { $0.key == anchorKey }) {
             reader.scrollTo(anchorKey, anchor: .top)
         }
+        // Relay the scroll the rest of the way. The target may sit in a
+        // lazy stack far below what is realized right now, and a single
+        // scrollTo cannot reach an entry that does not exist yet; it
+        // stops at the deepest realized one. So keep stepping: scroll
+        // to the deepest realized entry, let the next chunk realize,
+        // and repeat until the target itself is realized and scrolled
+        // to. The loop runs on a timer because once a step settles, no
+        // further frame changes arrive to drive another attempt. It
+        // ends when the frame reports confirm the target is back at
+        // the top (see updateScrollAnchor), or after a few seconds so
+        // it never fights the user for long.
+        anchorRestoreTask?.cancel()
+        anchorRestoreTask = Task { @MainActor in
+            var ticks = 0
+            while let key = pendingAnchorKey, ticks < 20 {
+                ticks += 1
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard pendingAnchorKey == key, !Task.isCancelled else { return }
+                if latestItemFrames[key] != nil {
+                    reader.scrollTo(key, anchor: .top)
+                } else if let stone = deepestMaterializedKey() {
+                    reader.scrollTo(stone, anchor: .top)
+                }
+            }
+            if pendingAnchorKey != nil {
+                pendingAnchorKey = nil
+                anchorWritesSuspended = false
+            }
+        }
+    }
+
+    /// The realized entry furthest along the current list, from the
+    /// frames the grid has reported. Used as a stepping stone by the
+    /// anchor restore loop.
+    private func deepestMaterializedKey() -> String? {
+        let indexByKey = Dictionary(
+            entries.enumerated().map { ($0.element.key, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return latestItemFrames.keys.max(by: { (indexByKey[$0] ?? -1) < (indexByKey[$1] ?? -1) })
     }
 }
 
 extension SourceHomeContentView {
     func reload(initial: Bool = false) async {
-        loadListingTask?.cancel()
+        if listingSwitchInFlight {
+            // a listing switch is mid-flight; cancelling it here would
+            // strand the page on the old listing while the chip bar
+            // already shows the new one — let it land first
+            await loadListingTask?.value
+        } else {
+            loadListingTask?.cancel()
+        }
         if error != nil {
             withAnimation {
                 loading = true
@@ -507,12 +546,17 @@ extension SourceHomeContentView {
                     // Source provides custom Home-like layout for this
                     // listing. Everything swaps in one step now that the
                     // content has landed: layout, entries, and selection.
-                    listingHome = home
-                    entries = []
-                    if let setListingSelection {
-                        listingSelection = setListingSelection
+                    // The one swap is faded, like the original design;
+                    // what made switching feel broken was never the
+                    // fade, it was the staged waits around it.
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        listingHome = home
+                        entries = []
+                        if let setListingSelection {
+                            listingSelection = setListingSelection
+                        }
+                        loading = false
                     }
-                    loading = false
 
                     listingLoadState = .allLoaded
                     return
@@ -540,6 +584,10 @@ extension SourceHomeContentView {
 
             guard !Task.isCancelled else { return }
 
+            // a load-more that started before a listing switch must not
+            // land: its page bump would skip a page of the new listing
+            guard initial || !listingSwitchInFlight else { return }
+
             hasMore = result.hasNextPage
             listingLoadState = hasMore ? .notLoading : .allLoaded
             page += 1
@@ -565,12 +613,15 @@ extension SourceHomeContentView {
 
             if initial {
                 // the one-step swap: new entries and, for a listing
-                // switch, the new selection land together, unanimated,
-                // so no skeleton, ghost, or old/new overlap ever renders
-                listingHome = nil
-                entries = result.entries
-                if let setListingSelection {
-                    listingSelection = setListingSelection
+                // switch, the new selection land together in a single
+                // short fade, so no skeleton, ghost, or old/new overlap
+                // ever renders — and the swap is not a hard cut either
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    listingHome = nil
+                    entries = result.entries
+                    if let setListingSelection {
+                        listingSelection = setListingSelection
+                    }
                 }
             } else {
                 // append to existing entries
