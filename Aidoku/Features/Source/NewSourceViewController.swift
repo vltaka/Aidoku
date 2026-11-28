@@ -219,6 +219,7 @@ class NewSourceViewController: UIViewController {
     }
 
     isolated deinit {
+        log("[probe] SourceVC deinit")
         // if it isn't removed, an old search bar can potentially block pressing the filter
         // header buttons in a newer source view controller for some reason
         searchController.searchBar.removeFromSuperview()
@@ -229,10 +230,6 @@ class NewSourceViewController: UIViewController {
         log("[probe] SourceVC viewDidLoad")
         configure()
         constrain()
-    }
-
-    deinit {
-        log("[probe] SourceVC deinit")
     }
 
     func configure() {
